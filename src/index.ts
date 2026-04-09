@@ -222,7 +222,7 @@ export default class LedgerPlugin extends Plugin {
     private registerSlashCommands() {
         this.protyleSlash = [
             {
-                filter: ["\u8bb0\u8d26", "\u652f\u51fa", "expense", "\u82b1\u8d39", "\u6d88\u8d39"],
+                filter: ["\u8bb0\u8d26", "\u652f\u51fa", "expense", "exp", "e", "\u82b1\u8d39", "\u6d88\u8d39"],
                 html: `<div class="b3-list-item__first"><span class="b3-list-item__text">\ud83d\udcb0 ${this.i18n.quickExpense}</span></div>`,
                 id: "ledger-expense",
                 callback: (protyle: Protyle) => {
@@ -230,7 +230,7 @@ export default class LedgerPlugin extends Plugin {
                 },
             },
             {
-                filter: ["\u6536\u5165", "income", "\u5de5\u8d44", "\u8fdb\u8d26"],
+                filter: ["\u6536\u5165", "income", "inc", "i", "\u5de5\u8d44", "\u8fdb\u8d26"],
                 html: `<div class="b3-list-item__first"><span class="b3-list-item__text">\ud83d\udcc8 ${this.i18n.quickIncome}</span></div>`,
                 id: "ledger-income",
                 callback: (protyle: Protyle) => {
@@ -238,7 +238,7 @@ export default class LedgerPlugin extends Plugin {
                 },
             },
             {
-                filter: ["\u8f6c\u8d26", "transfer", "\u5212\u8f6c"],
+                filter: ["\u8f6c\u8d26", "transfer", "trans", "t", "\u5212\u8f6c"],
                 html: `<div class="b3-list-item__first"><span class="b3-list-item__text">\ud83d\udd04 ${this.i18n.quickTransfer}</span></div>`,
                 id: "ledger-transfer",
                 callback: (protyle: Protyle) => {
@@ -246,7 +246,7 @@ export default class LedgerPlugin extends Plugin {
                 },
             },
             {
-                filter: ["\u5feb\u8bb0", "quick", "q"],
+                filter: ["\u5feb\u8bb0", "quick", "q", "ledger"],
                 html: `<div class="b3-list-item__first"><span class="b3-list-item__text">\u26a1 ${this.i18n.quickEntry}</span></div>`,
                 id: "ledger-quickadd",
                 callback: (protyle: Protyle) => {
