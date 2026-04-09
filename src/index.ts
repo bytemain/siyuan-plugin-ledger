@@ -28,6 +28,13 @@ import {
     DOCK_OVERVIEW,
     DEFAULT_CONFIG,
     ATTR_TYPE,
+    ATTR_DATE,
+    ATTR_STATUS,
+    ATTR_PAYEE,
+    ATTR_NARRATION,
+    ATTR_POSTINGS,
+    ATTR_TAGS,
+    ATTR_UUID,
     TRANSACTION_TYPE_VALUE,
 } from "./types";
 import {DataService} from "./dataService";
@@ -399,14 +406,8 @@ export default class LedgerPlugin extends Plugin {
         const thisMonth = new Date().toISOString().slice(0, 7);
         const monthlyExpense = cache.monthlyExpenses[thisMonth] || 0;
 
-        // Compute monthly income from cached balances (approximate from cache)
-        let monthlyIncome = 0;
-        const incomeAccounts = ds.getAccountsByPrefix("Income");
-        for (const a of incomeAccounts) {
-            const bal = cache.accountBalances[a.path]?.[currency] || 0;
-            // Income accounts have negative balances in double-entry
-            if (bal < 0) monthlyIncome += Math.abs(bal);
-        }
+        // Monthly income from cache (stored alongside expenses)
+        const monthlyIncome = cache.monthlyIncome?.[thisMonth] || 0;
 
         // Net assets (total assets - total liabilities)
         let totalAssets = 0;
@@ -569,32 +570,25 @@ export default class LedgerPlugin extends Plugin {
         fetchPost("/api/attr/getBlockAttrs", {id: blockId}, (res) => {
             if (res.code !== 0) return;
             const attrs = res.data || {};
-            const postings: ITransaction["postings"] = (() => {
-                try {
-                    return JSON.parse(attrs[ATTR_TYPE.replace("type", "postings")] || "[]");
-                } catch {
-                    return [];
-                }
-            })();
-            const tagsRaw = attrs["custom-ledger-tags"] || "";
 
-            const tx: ITransaction = {
-                blockId,
-                uuid: attrs["custom-ledger-uuid"] || blockId,
-                date: attrs["custom-ledger-date"] || "",
-                status: (attrs["custom-ledger-status"] as ITransaction["status"]) || "uncleared",
-                payee: attrs["custom-ledger-payee"] || "",
-                narration: attrs["custom-ledger-narration"] || "",
-                postings,
-                tags: tagsRaw ? tagsRaw.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
-            };
-
-            // Re-parse postings from the correct attribute
+            let postings: ITransaction["postings"] = [];
             try {
-                tx.postings = JSON.parse(attrs["custom-ledger-postings"] || "[]");
+                postings = JSON.parse(attrs[ATTR_POSTINGS] || "[]");
             } catch {
                 // keep empty
             }
+            const tagsRaw = attrs[ATTR_TAGS] || "";
+
+            const tx: ITransaction = {
+                blockId,
+                uuid: attrs[ATTR_UUID] || blockId,
+                date: attrs[ATTR_DATE] || "",
+                status: (attrs[ATTR_STATUS] as ITransaction["status"]) || "uncleared",
+                payee: attrs[ATTR_PAYEE] || "",
+                narration: attrs[ATTR_NARRATION] || "",
+                postings,
+                tags: tagsRaw ? tagsRaw.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
+            };
 
             this.openEditDialog(tx);
         });
@@ -696,17 +690,17 @@ export default class LedgerPlugin extends Plugin {
             }
 
             if (updatedTx.postings.length < 2) {
-                showMessage("[Ledger] At least 2 postings required");
+                showMessage("[Ledger] " + i18n.postingsRequired);
                 return;
             }
 
             try {
                 await ds.updateTransaction(updatedTx);
                 dialog.destroy();
-                showMessage("[Ledger] " + i18n.save);
+                showMessage("[Ledger] " + i18n.txUpdated);
             } catch (e) {
                 console.error("[SiYuan Ledger] update transaction failed:", e);
-                showMessage(`[Ledger] Update failed: ${e}`);
+                showMessage(`[Ledger] ${i18n.txUpdateFailed}: ${e}`);
             }
         });
 
@@ -854,7 +848,7 @@ export default class LedgerPlugin extends Plugin {
                     showMessage(`[Ledger] ${this.i18n.importSuccess}: ${txns.length} ${this.i18n.transactions}`);
                 } catch (e) {
                     console.error("[SiYuan Ledger] import failed:", e);
-                    showMessage(`[Ledger] Import failed: ${e}`);
+                    showMessage(`[Ledger] ${this.i18n.importFailed}: ${e}`);
                 }
             },
         });

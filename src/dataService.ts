@@ -115,6 +115,7 @@ export class DataService {
         lastQueryTime: 0,
         accountBalances: {},
         monthlyExpenses: {},
+        monthlyIncome: {},
         recentPayees: [],
         recentAccounts: [],
     };
@@ -402,6 +403,7 @@ export class DataService {
         // Invalidate balance cache
         this.cache.accountBalances = {};
         this.cache.monthlyExpenses = {};
+        this.cache.monthlyIncome = {};
         this.cache.lastQueryTime = 0;
     }
 
@@ -410,17 +412,21 @@ export class DataService {
         this.cache.accountBalances = this.calculateBalances(all);
         this.cache.lastQueryTime = Date.now();
 
-        // Monthly expenses
-        const monthly: Record<string, number> = {};
+        // Monthly expenses & income
+        const monthlyExp: Record<string, number> = {};
+        const monthlyInc: Record<string, number> = {};
         for (const tx of all) {
             const ym = tx.date.slice(0, 7);
             for (const p of tx.postings) {
                 if (p.account.startsWith("Expenses:") && p.amount > 0) {
-                    monthly[ym] = (monthly[ym] || 0) + p.amount;
+                    monthlyExp[ym] = (monthlyExp[ym] || 0) + p.amount;
+                } else if (p.account.startsWith("Income:") && p.amount < 0) {
+                    monthlyInc[ym] = (monthlyInc[ym] || 0) + Math.abs(p.amount);
                 }
             }
         }
-        this.cache.monthlyExpenses = monthly;
+        this.cache.monthlyExpenses = monthlyExp;
+        this.cache.monthlyIncome = monthlyInc;
     }
 
     // ─── Account helpers ─────────────────────────────────────────────────

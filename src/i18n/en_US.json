@@ -107,5 +107,9 @@
   "confirmDeleteTx": "Confirm deleting this transaction?",
   "txDeleted": "Transaction deleted",
   "txInserted": "Transaction recorded",
+  "txUpdated": "Transaction updated",
+  "txUpdateFailed": "Update failed",
+  "postingsRequired": "At least 2 postings required",
+  "importFailed": "Import failed",
   "openDocFirst": "Please open a document first"
 }
