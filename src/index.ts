@@ -5,6 +5,7 @@ import {
     Plugin,
     showMessage,
     confirm,
+    Dialog,
     Menu,
     openTab,
     adaptHotkey,
@@ -27,6 +28,13 @@ import {
     DOCK_OVERVIEW,
     DEFAULT_CONFIG,
     ATTR_TYPE,
+    ATTR_DATE,
+    ATTR_STATUS,
+    ATTR_PAYEE,
+    ATTR_NARRATION,
+    ATTR_POSTINGS,
+    ATTR_TAGS,
+    ATTR_UUID,
     TRANSACTION_TYPE_VALUE,
 } from "./types";
 import {DataService} from "./dataService";
@@ -401,6 +409,20 @@ export default class LedgerPlugin extends Plugin {
         const thisMonth = new Date().toISOString().slice(0, 7);
         const monthlyExpense = cache.monthlyExpenses[thisMonth] || 0;
 
+        // Monthly income from cache (optional chaining for backward compat with older cached data)
+        const monthlyIncome = cache.monthlyIncome?.[thisMonth] || 0;
+
+        // Net assets (total assets - total liabilities)
+        let totalAssets = 0;
+        for (const a of ds.getAccountsByPrefix("Assets")) {
+            totalAssets += cache.accountBalances[a.path]?.[currency] || 0;
+        }
+        let totalLiabilities = 0;
+        for (const a of ds.getAccountsByPrefix("Liabilities")) {
+            totalLiabilities += cache.accountBalances[a.path]?.[currency] || 0;
+        }
+        const netAssets = totalAssets + totalLiabilities; // liabilities are negative
+
         return `<div class="ledger-dock">
   <div class="ledger-dock-header">
     <span>\ud83d\udcb0 ${this.i18n.dockTitle}</span>
@@ -419,8 +441,19 @@ export default class LedgerPlugin extends Plugin {
     <div class="ledger-dock-section">
       <div class="ledger-dock-section-title">\u2500\u2500 ${thisMonth} \u2500\u2500</div>
       <div class="ledger-dock-row">
+        <span>${this.i18n.monthlyIncome}</span>
+        <span class="ledger-dock-amount ledger-income">${symDef}${monthlyIncome.toFixed(2)}</span>
+      </div>
+      <div class="ledger-dock-row">
         <span>${this.i18n.monthlyExpenses}</span>
         <span class="ledger-dock-amount ledger-expense">${symDef}${monthlyExpense.toFixed(2)}</span>
+      </div>
+    </div>
+    <div class="ledger-dock-divider"></div>
+    <div class="ledger-dock-section">
+      <div class="ledger-dock-row">
+        <span>${this.i18n.netAssets}</span>
+        <span class="ledger-dock-amount ${netAssets >= 0 ? "ledger-income" : "ledger-expense"}">${symDef}${netAssets.toFixed(2)}</span>
       </div>
     </div>
   </div>
@@ -539,7 +572,143 @@ export default class LedgerPlugin extends Plugin {
     private openEditTransactionById(blockId: string) {
         fetchPost("/api/attr/getBlockAttrs", {id: blockId}, (res) => {
             if (res.code !== 0) return;
-            showMessage(`[Ledger] ${this.i18n.editTransaction}: ${blockId.slice(0, 8)}\u2026`);
+            const attrs = res.data || {};
+
+            let postings: ITransaction["postings"] = [];
+            try {
+                postings = JSON.parse(attrs[ATTR_POSTINGS] || "[]");
+            } catch {
+                // keep empty
+            }
+            const tagsRaw = attrs[ATTR_TAGS] || "";
+
+            const tx: ITransaction = {
+                blockId,
+                uuid: attrs[ATTR_UUID] || blockId,
+                date: attrs[ATTR_DATE] || "",
+                status: (attrs[ATTR_STATUS] as ITransaction["status"]) || "uncleared",
+                payee: attrs[ATTR_PAYEE] || "",
+                narration: attrs[ATTR_NARRATION] || "",
+                postings,
+                tags: tagsRaw ? tagsRaw.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
+            };
+
+            this.openEditDialog(tx);
+        });
+    }
+
+    private openEditDialog(tx: ITransaction) {
+        const ds = this.dataService;
+        const i18n = this.i18n;
+        const config = ds.getConfig();
+
+        const allAccounts = ["Assets", "Liabilities", "Income", "Expenses", "Equity"]
+            .map(t => `<optgroup label="${t}">${ds.getAccountsByPrefix(t).map(a =>
+                `<option value="${a.path}">${a.icon || ""} ${a.path}${a.note ? " (" + a.note + ")" : ""}</option>`
+            ).join("")}</optgroup>`).join("");
+
+        // Build posting rows HTML
+        const postingRowsHtml = tx.postings.map((p, idx) => `
+        <div class="ledger-split-row" data-posting-idx="${idx}">
+          <select class="b3-select edit-posting-account" style="flex:1">${allAccounts.replace(
+            `value="${p.account}"`,
+            `value="${p.account}" selected`
+        )}</select>
+          <input class="b3-text-field edit-posting-amount" type="number" step="0.01" value="${p.amount}" style="width:100px">
+          <select class="b3-select edit-posting-currency" style="width:70px">
+            ${Object.keys(config.currencySymbols).map(c =>
+            `<option value="${c}" ${c === p.currency ? "selected" : ""}>${c}</option>`
+        ).join("")}
+          </select>
+        </div>`).join("");
+
+        const content = `<div class="b3-dialog__content ledger-dialog">
+  <div class="ledger-form-row">
+    <label class="ledger-label">${i18n.date}</label>
+    <input id="ledger-edit-date" class="b3-text-field fn__block" type="date" value="${tx.date}">
+  </div>
+  <div class="ledger-form-row">
+    <label class="ledger-label">${i18n.status}</label>
+    <select id="ledger-edit-status" class="b3-select fn__block">
+      <option value="cleared" ${tx.status === "cleared" ? "selected" : ""}>✓ ${i18n.cleared}</option>
+      <option value="pending" ${tx.status === "pending" ? "selected" : ""}>? ${i18n.pending}</option>
+      <option value="uncleared" ${tx.status === "uncleared" ? "selected" : ""}>~ ${i18n.uncleared}</option>
+    </select>
+  </div>
+  <div class="ledger-form-row">
+    <label class="ledger-label">${i18n.payee}</label>
+    <input id="ledger-edit-payee" class="b3-text-field fn__block" type="text" value="${tx.payee}">
+  </div>
+  <div class="ledger-form-row">
+    <label class="ledger-label">${i18n.narration}</label>
+    <input id="ledger-edit-narration" class="b3-text-field fn__block" type="text" value="${tx.narration || ""}">
+  </div>
+  <div class="ledger-form-row">
+    <label class="ledger-label">${i18n.tags}</label>
+    <input id="ledger-edit-tags" class="b3-text-field fn__block" type="text" value="${(tx.tags || []).join(", ")}">
+  </div>
+  <div class="ledger-section-title" style="margin-top:8px">${i18n.postings}</div>
+  <div id="ledger-edit-postings">
+    ${postingRowsHtml}
+  </div>
+</div>
+<div class="b3-dialog__action">
+  <button class="b3-button b3-button--cancel" id="ledger-edit-cancel">${i18n.cancel}</button>
+  <div class="fn__space"></div>
+  <button class="b3-button b3-button--text" id="ledger-edit-save">✓ ${i18n.save}</button>
+</div>`;
+
+        const dialog = new Dialog({
+            title: `✏️ ${i18n.editTransaction}`,
+            content,
+            width: "520px",
+            height: "auto",
+        });
+        const el = dialog.element;
+
+        el.querySelector("#ledger-edit-cancel")?.addEventListener("click", () => dialog.destroy());
+
+        el.querySelector("#ledger-edit-save")?.addEventListener("click", async () => {
+            const updatedTx: ITransaction = {
+                blockId: tx.blockId,
+                uuid: tx.uuid,
+                date: (el.querySelector<HTMLInputElement>("#ledger-edit-date"))?.value || tx.date,
+                status: (el.querySelector<HTMLSelectElement>("#ledger-edit-status"))?.value as ITransaction["status"] || tx.status,
+                payee: (el.querySelector<HTMLInputElement>("#ledger-edit-payee"))?.value.trim() || tx.payee,
+                narration: (el.querySelector<HTMLInputElement>("#ledger-edit-narration"))?.value.trim() || "",
+                tags: ((el.querySelector<HTMLInputElement>("#ledger-edit-tags"))?.value || "")
+                    .split(",").map(t => t.trim()).filter(Boolean),
+                postings: [],
+            };
+
+            // Collect postings from form
+            const postingRows = el.querySelectorAll("#ledger-edit-postings .ledger-split-row");
+            for (const row of postingRows) {
+                const account = (row.querySelector<HTMLSelectElement>(".edit-posting-account"))?.value || "";
+                const amount = parseFloat((row.querySelector<HTMLInputElement>(".edit-posting-amount"))?.value || "0");
+                const currency = (row.querySelector<HTMLSelectElement>(".edit-posting-currency"))?.value || config.defaultCurrency;
+                if (account) {
+                    updatedTx.postings.push({account, amount, currency});
+                }
+            }
+
+            if (updatedTx.postings.length < 2) {
+                showMessage("[Ledger] " + i18n.postingsRequired);
+                return;
+            }
+
+            try {
+                await ds.updateTransaction(updatedTx);
+                dialog.destroy();
+                showMessage("[Ledger] " + i18n.txUpdated);
+            } catch (e) {
+                console.error("[SiYuan Ledger] update transaction failed:", e);
+                showMessage(`[Ledger] ${i18n.txUpdateFailed}: ${e}`);
+            }
+        });
+
+        el.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key === "Escape") dialog.destroy();
         });
     }
 
@@ -659,8 +828,31 @@ export default class LedgerPlugin extends Plugin {
             dataService: this.dataService,
             i18n: this.i18n,
             isMobile: this.isMobile,
-            onImportSuccess: (txns) => {
-                showMessage(`[Ledger] Imported ${txns.length} transactions`);
+            onImportSuccess: async (txns) => {
+                // Actually persist each imported transaction
+                const protyle = this.getActiveProtyle();
+                if (!protyle) {
+                    showMessage("[Ledger] " + this.i18n.openDocFirst);
+                    return;
+                }
+                try {
+                    const protoInst = protyle.protyle;
+                    const parentID = protoInst?.block?.rootID || "";
+                    let previousID = protoInst?.wysiwyg?.element?.lastElementChild
+                        ? ((protoInst.wysiwyg.element.lastElementChild as HTMLElement).dataset?.nodeId || "")
+                        : "";
+
+                    for (const tx of txns) {
+                        const blockId = await this.dataService.insertTransaction(tx, parentID, previousID);
+                        previousID = blockId;
+                    }
+                    await this.dataService.refreshCache();
+                    await this.savePersistedCache();
+                    showMessage(`[Ledger] ${this.i18n.importSuccess}: ${txns.length} ${this.i18n.transactions}`);
+                } catch (e) {
+                    console.error("[SiYuan Ledger] import failed:", e);
+                    showMessage(`[Ledger] ${this.i18n.importFailed}: ${e}`);
+                }
             },
         });
     }
@@ -741,6 +933,6 @@ export default class LedgerPlugin extends Plugin {
 
         el.innerHTML = `<svg style="width:14px;height:14px;vertical-align:middle;margin-right:4px;">
       <use xlink:href="#iconLedger"></use></svg><span style="font-size:12px;vertical-align:middle;">
-      ${this.i18n.statusBar} ${sym}${monthlyExpense.toFixed(0)}</span>`;
+      ${this.i18n.statusBar} <span class="ledger-expense">${sym}${monthlyExpense.toFixed(0)}</span></span>`;
     }
 }
