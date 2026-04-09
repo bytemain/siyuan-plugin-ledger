@@ -445,17 +445,15 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
           <select class="b3-select qe-posting-account" style="flex:1">${expenseAccounts}</select>
           <input class="b3-text-field qe-posting-amount" type="number" step="0.01" value="${p.amount}" style="width:100px">
           <select class="b3-select qe-posting-currency" style="width:70px">${currencyOptionsHtml}</select>`;
-        // Set the selected account
+        // Set the selected account by value (avoid CSS selector issues with special chars like colons)
         const select = row.querySelector<HTMLSelectElement>(".qe-posting-account");
         if (select) {
-            const opt = select.querySelector<HTMLOptionElement>(`option[value="${escapeHtmlAttr(p.account)}"]`);
-            if (opt) opt.selected = true;
+            select.value = p.account;
         }
         // Set the selected currency
         const currSelect = row.querySelector<HTMLSelectElement>(".qe-posting-currency");
         if (currSelect) {
-            const opt = currSelect.querySelector<HTMLOptionElement>(`option[value="${escapeHtmlAttr(p.currency)}"]`);
-            if (opt) opt.selected = true;
+            currSelect.value = p.currency;
         }
         return row;
     }
@@ -495,10 +493,6 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
         const tags = tagsVal ? tagsVal.split(",").map(t => t.trim()).filter(Boolean) : [];
 
         if (!payeeVal) {
-            // Try parsing the quick line as fallback
-            const partial = parseQuickLine(lineInput?.value || "", ds);
-            if (!partial || !partial.postings) return;
-
             const payeeInput = el.querySelector<HTMLInputElement>("#ledger-qe-payee");
             payeeInput?.focus();
             payeeInput?.classList.add("ledger-error");
