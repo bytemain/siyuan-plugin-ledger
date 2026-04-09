@@ -7,6 +7,7 @@ import {
     IPosting,
     ILedgerConfig,
     ILedgerCache,
+    IPayeeStats,
     IAccount,
     ATTR_TYPE,
     ATTR_DATE,
@@ -117,6 +118,7 @@ export class DataService {
         monthlyExpenses: {},
         recentPayees: [],
         recentAccounts: [],
+        payeeHistory: {},
     };
 
     // ─── Configuration ──────────────────────────────────────────────────
@@ -399,6 +401,29 @@ export class DataService {
                 this.cache.recentAccounts = this.cache.recentAccounts.slice(0, 20);
             }
         }
+        // Update payee history
+        if (tx.payee) {
+            const positiveAmount = tx.postings
+                .filter(p => p.amount > 0)
+                .reduce((sum, p) => sum + p.amount, 0);
+            const expenseOrIncomePosting = tx.postings.find(
+                p => p.account.startsWith("Expenses:") || p.account.startsWith("Income:"),
+            );
+            const existing = this.cache.payeeHistory[tx.payee];
+            if (existing) {
+                existing.count++;
+                existing.totalAmount += positiveAmount;
+                if (expenseOrIncomePosting) existing.lastAccount = expenseOrIncomePosting.account;
+                existing.lastDate = tx.date;
+            } else {
+                this.cache.payeeHistory[tx.payee] = {
+                    count: 1,
+                    totalAmount: positiveAmount,
+                    lastAccount: expenseOrIncomePosting?.account || "",
+                    lastDate: tx.date,
+                };
+            }
+        }
         // Invalidate balance cache
         this.cache.accountBalances = {};
         this.cache.lastQueryTime = 0;
@@ -420,6 +445,69 @@ export class DataService {
             }
         }
         this.cache.monthlyExpenses = monthly;
+
+        // Build payee history
+        this.cache.payeeHistory = this.buildPayeeHistory(all);
+    }
+
+    /** Build per-payee statistics from a list of transactions. */
+    buildPayeeHistory(transactions: ITransaction[]): Record<string, IPayeeStats> {
+        const history: Record<string, IPayeeStats> = {};
+        for (const tx of transactions) {
+            if (!tx.payee) continue;
+            const positiveAmount = tx.postings
+                .filter(p => p.amount > 0)
+                .reduce((sum, p) => sum + p.amount, 0);
+            const expenseOrIncomePosting = tx.postings.find(
+                p => p.account.startsWith("Expenses:") || p.account.startsWith("Income:"),
+            );
+            const existing = history[tx.payee];
+            if (existing) {
+                existing.count++;
+                existing.totalAmount += positiveAmount;
+                if (expenseOrIncomePosting) existing.lastAccount = expenseOrIncomePosting.account;
+                if (tx.date > existing.lastDate) existing.lastDate = tx.date;
+            } else {
+                history[tx.payee] = {
+                    count: 1,
+                    totalAmount: positiveAmount,
+                    lastAccount: expenseOrIncomePosting?.account || "",
+                    lastDate: tx.date,
+                };
+            }
+        }
+        return history;
+    }
+
+    /** Get stats for a specific payee, or undefined if not found. */
+    getPayeeStats(payee: string): IPayeeStats | undefined {
+        return this.cache.payeeHistory[payee];
+    }
+
+    /**
+     * Search payees matching a query string (prefix or substring, case-insensitive).
+     * Returns results sorted by usage count (most used first), limited to `limit`.
+     */
+    searchPayees(query: string, limit = 10): string[] {
+        const q = query.toLowerCase();
+        const history = this.cache.payeeHistory;
+        const all = Object.keys(history);
+        if (!q) {
+            // Return most frequently used payees
+            return all
+                .sort((a, b) => history[b].count - history[a].count)
+                .slice(0, limit);
+        }
+        return all
+            .filter(p => p.toLowerCase().includes(q))
+            .sort((a, b) => {
+                // Prefer prefix matches
+                const aPrefix = a.toLowerCase().startsWith(q) ? 0 : 1;
+                const bPrefix = b.toLowerCase().startsWith(q) ? 0 : 1;
+                if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+                return history[b].count - history[a].count;
+            })
+            .slice(0, limit);
     }
 
     // ─── Account helpers ─────────────────────────────────────────────────

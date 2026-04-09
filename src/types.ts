@@ -68,6 +68,19 @@ export interface ILedgerConfig {
     autoBalance: boolean;
 }
 
+// ─── Payee statistics (for autocomplete inference) ──────────────────────────
+
+export interface IPayeeStats {
+    /** Number of historical transactions with this payee */
+    count: number;
+    /** Sum of positive posting amounts (used for average calculation) */
+    totalAmount: number;
+    /** Most recently used expense/income account for this payee */
+    lastAccount: string;
+    /** Date of the most recent transaction */
+    lastDate: string;
+}
+
 // ─── Cache ───────────────────────────────────────────────────────────────────
 
 export interface ILedgerCache {
@@ -76,6 +89,8 @@ export interface ILedgerCache {
     monthlyExpenses: Record<string, number>;
     recentPayees: string[];
     recentAccounts: string[];
+    /** Per-payee statistics built from transaction history */
+    payeeHistory: Record<string, IPayeeStats>;
 }
 
 // ─── Storage keys ────────────────────────────────────────────────────────────
