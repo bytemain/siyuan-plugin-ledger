@@ -257,6 +257,54 @@
   fill: var(--b3-theme-on-surface);
 }
 
+.ledger-chart-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.ledger-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+// ── Budget bars ───────────────────────────────────────────────────────────────
+
+.ledger-budget-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.ledger-budget-bar-bg {
+  flex: 1;
+  height: 8px;
+  background: var(--b3-border-color-light, #eee);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.ledger-budget-bar-fill {
+  height: 100%;
+  background: var(--b3-theme-primary);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.ledger-budget-over {
+  background: #e74c3c;
+}
+
+.ledger-budget-pct {
+  font-family: var(--b3-font-family-code);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .ledger-pie-wrapper {
   display: flex;
   align-items: center;

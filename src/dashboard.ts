@@ -19,13 +19,14 @@ function buildBarChart(
     monthlyIncome: Record<string, number>,
     currency: string,
     sym: string,
+    i18n: Record<string, string>,
 ): string {
     const allMonths = new Set([
         ...Object.keys(monthlyExpenses),
         ...Object.keys(monthlyIncome),
     ]);
     const months = [...allMonths].sort().slice(-12);
-    if (months.length === 0) return '<div class="ledger-empty">暂无数据</div>';
+    if (months.length === 0) return `<div class="ledger-empty">${i18n.noData}</div>`;
 
     const maxVal = Math.max(
         ...months.map(m => monthlyExpenses[m] || 0),
@@ -58,10 +59,10 @@ function buildBarChart(
   </svg>`;
 }
 
-/** Render a simple SVG pie chart for expense categories */
-function buildPieChart(categories: Record<string, number>, sym: string): string {
+/** Render a simple SVG pie chart for categories */
+function buildPieChart(categories: Record<string, number>, sym: string, i18n: Record<string, string>): string {
     const entries = Object.entries(categories).sort((a, b) => b[1] - a[1]).slice(0, 6);
-    if (entries.length === 0) return '<div class="ledger-empty">暂无数据</div>';
+    if (entries.length === 0) return `<div class="ledger-empty">${i18n.noData}</div>`;
 
     const total = entries.reduce((s, [, v]) => s + v, 0);
     const colors = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c"];
@@ -151,7 +152,7 @@ export function buildDashboardHTML(opts: IDashboardRenderOptions): string {
             }
         }
     }
-    const barChart = buildBarChart(monthlyExpenseData, monthlyIncomeData, currency, symDef);
+    const barChart = buildBarChart(monthlyExpenseData, monthlyIncomeData, currency, symDef, i18n);
 
     // ── Expense by category ──────────────────────────────────────────────
     const catExpenses: Record<string, number> = {};
@@ -163,7 +164,19 @@ export function buildDashboardHTML(opts: IDashboardRenderOptions): string {
             }
         }
     }
-    const pieChart = buildPieChart(catExpenses, symDef);
+    const pieChart = buildPieChart(catExpenses, symDef, i18n);
+
+    // ── Income by category ──────────────────────────────────────────────
+    const catIncome: Record<string, number> = {};
+    for (const tx of transactions) {
+        for (const p of tx.postings) {
+            if (p.account.startsWith("Income:") && p.amount < 0 && p.currency === currency) {
+                const cat = p.account.split(":").slice(0, 2).join(":");
+                catIncome[cat] = (catIncome[cat] || 0) + Math.abs(p.amount);
+            }
+        }
+    }
+    const incomePieChart = buildPieChart(catIncome, symDef, i18n);
 
     // ── Asset balances ────────────────────────────────────────────────────
     const balances = ds.calculateBalances(allTransactions);
@@ -185,6 +198,28 @@ export function buildDashboardHTML(opts: IDashboardRenderOptions): string {
         <span class="ledger-balance-amount ledger-expense">${symDef}${bal.toFixed(2)}</span>
       </div>`;
         }).join("");
+
+    // ── Budget usage ──────────────────────────────────────────────────────
+    const budgetRows = opts.budgetUsage.length > 0
+        ? opts.budgetUsage.map(b => {
+            const pct = b.total > 0 ? Math.round((b.used / b.total) * 100) : 0;
+            const overBudget = pct > 100;
+            const shortName = b.account.split(":").pop() || b.account;
+            return `<div class="ledger-budget-row">
+          <span>${escapeHtml(shortName)}</span>
+          <div class="ledger-budget-bar-bg">
+            <div class="ledger-budget-bar-fill ${overBudget ? "ledger-budget-over" : ""}" style="width:${Math.min(pct, 100)}%"></div>
+          </div>
+          <span class="ledger-budget-pct ${overBudget ? "ledger-expense" : ""}">${sym(b.currency)}${b.used.toFixed(0)}/${sym(b.currency)}${b.total.toFixed(0)} (${pct}%)</span>
+        </div>`;
+        }).join("")
+        : "";
+
+    // ── Chart legend ──────────────────────────────────────────────────────
+    const chartLegend = `<div class="ledger-chart-legend">
+    <span class="ledger-chart-legend-item"><span class="ledger-legend-dot" style="background:#2ecc71"></span> ${i18n.income}</span>
+    <span class="ledger-chart-legend-item"><span class="ledger-legend-dot" style="background:#e74c3c"></span> ${i18n.expenses}</span>
+  </div>`;
 
     // ── Recent transactions ───────────────────────────────────────────────
     const recentTxRows = transactions.slice(0, 20).map(tx => formatTx(tx, sym)).join("");
@@ -224,10 +259,17 @@ export function buildDashboardHTML(opts: IDashboardRenderOptions): string {
 
     <div class="ledger-main">
       <div class="ledger-section-title">${i18n.monthlyTrend}</div>
+      ${chartLegend}
       ${barChart}
 
       <div class="ledger-section-title" style="margin-top:20px;">${i18n.expenseCategories}</div>
       ${pieChart}
+
+      ${income > 0 ? `<div class="ledger-section-title" style="margin-top:20px;">${i18n.incomeCategories}</div>
+      ${incomePieChart}` : ""}
+
+      ${budgetRows ? `<div class="ledger-section-title" style="margin-top:20px;">${i18n.budgetUsage}</div>
+      ${budgetRows}` : ""}
 
       <div class="ledger-section-title" style="margin-top:20px;">${i18n.recentTransactions}</div>
       <div class="ledger-tx-header">
