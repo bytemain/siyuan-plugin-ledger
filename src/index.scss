@@ -90,6 +90,13 @@
   white-space: pre-wrap;
 }
 
+.ledger-qe-posting-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
 // ── Tab bar (import/export dialog) ────────────────────────────────────────────
 
 .ledger-tab-bar {

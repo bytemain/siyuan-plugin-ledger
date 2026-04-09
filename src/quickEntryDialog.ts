@@ -388,6 +388,14 @@ function parseQuickLine(line: string, ds: DataService): Partial<ITransaction> | 
 
 export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     const {protyle, dataService: ds, i18n, onSuccess} = opts;
+    const config = ds.getConfig();
+    const expenseAccounts = allAccountOptions(ds);
+
+    // Currency options
+    const currencyKeys = Object.keys(config.currencySymbols);
+    const currencyOptionsHtml = currencyKeys
+        .map(c => `<option value="${escapeHtmlAttr(c)}" ${c === config.defaultCurrency ? "selected" : ""}>${escapeHtmlAttr(c)}</option>`)
+        .join("");
 
     const content = `<div class="b3-dialog__content ledger-dialog">
   <div class="ledger-form-row">
@@ -395,7 +403,21 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     <input id="ledger-quick-line" class="b3-text-field fn__block" type="text"
       placeholder="${i18n.quickEntryPlaceholder}">
   </div>
-  <div id="ledger-quick-preview" class="ledger-preview" style="display:none;"></div>
+  <div id="ledger-quick-preview" class="ledger-preview" style="display:none;">
+    <div class="ledger-form-row">
+      <label class="ledger-label">${i18n.date}</label>
+      <input id="ledger-qe-date" class="b3-text-field fn__block" type="date" value="${todayStr()}">
+    </div>
+    <div class="ledger-form-row">
+      <label class="ledger-label">${i18n.payee}</label>
+      <input id="ledger-qe-payee" class="b3-text-field fn__block" type="text">
+    </div>
+    <div id="ledger-qe-postings"></div>
+    <div class="ledger-form-row">
+      <label class="ledger-label">${i18n.tags}</label>
+      <input id="ledger-qe-tags" class="b3-text-field fn__block" type="text" placeholder="${i18n.tagsPlaceholder}">
+    </div>
+  </div>
 </div>
 <div class="b3-dialog__action">
   <button class="b3-button b3-button--cancel" id="ledger-cancel">${i18n.cancel}</button>
@@ -412,16 +434,49 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     const el = dialog.element;
     const lineInput = el.querySelector<HTMLInputElement>("#ledger-quick-line");
     const preview = el.querySelector<HTMLElement>("#ledger-quick-preview");
+    const postingsDiv = el.querySelector<HTMLElement>("#ledger-qe-postings");
+
+    function buildPostingRow(p: IPosting): HTMLDivElement {
+        const row = document.createElement("div");
+        row.className = "ledger-qe-posting-row";
+        const icon = p.amount >= 0 ? "📤" : "📥";
+        row.innerHTML = `
+          <label class="ledger-label">${icon}</label>
+          <select class="b3-select qe-posting-account" style="flex:1">${expenseAccounts}</select>
+          <input class="b3-text-field qe-posting-amount" type="number" step="0.01" value="${p.amount}" style="width:100px">
+          <select class="b3-select qe-posting-currency" style="width:70px">${currencyOptionsHtml}</select>`;
+        // Set the selected account
+        const select = row.querySelector<HTMLSelectElement>(".qe-posting-account");
+        if (select) {
+            const opt = select.querySelector<HTMLOptionElement>(`option[value="${escapeHtmlAttr(p.account)}"]`);
+            if (opt) opt.selected = true;
+        }
+        // Set the selected currency
+        const currSelect = row.querySelector<HTMLSelectElement>(".qe-posting-currency");
+        if (currSelect) {
+            const opt = currSelect.querySelector<HTMLOptionElement>(`option[value="${escapeHtmlAttr(p.currency)}"]`);
+            if (opt) opt.selected = true;
+        }
+        return row;
+    }
 
     lineInput?.addEventListener("input", () => {
-        if (!preview) return;
+        if (!preview || !postingsDiv) return;
         const partial = parseQuickLine(lineInput.value, ds);
         if (partial && partial.postings && partial.postings.length > 0) {
-            const sym = (c: string) => ds.getCurrencySymbol(c);
-            const lines = partial.postings.map(p =>
-                `${p.amount >= 0 ? "📤" : "📥"} ${p.account}  ${sym(p.currency)}${p.amount.toFixed(2)}`
-            );
-            preview.innerHTML = `<pre class="ledger-preview-text">💰 ${partial.date} ${partial.payee}\n${lines.join("\n")}</pre>`;
+            const dateInput = el.querySelector<HTMLInputElement>("#ledger-qe-date");
+            const payeeInput = el.querySelector<HTMLInputElement>("#ledger-qe-payee");
+            const tagsInput = el.querySelector<HTMLInputElement>("#ledger-qe-tags");
+
+            if (dateInput) dateInput.value = partial.date || todayStr();
+            if (payeeInput) payeeInput.value = partial.payee || "";
+            if (tagsInput) tagsInput.value = (partial.tags || []).join(", ");
+
+            postingsDiv.innerHTML = "";
+            partial.postings.forEach(p => {
+                postingsDiv.appendChild(buildPostingRow(p));
+            });
+
             preview.style.display = "";
         } else {
             preview.style.display = "none";
@@ -431,8 +486,35 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     el.querySelector("#ledger-cancel")?.addEventListener("click", () => dialog.destroy());
 
     el.querySelector("#ledger-submit")?.addEventListener("click", async () => {
-        const partial = parseQuickLine(lineInput?.value || "", ds);
-        if (!partial || !partial.postings) return;
+        if (!postingsDiv) return;
+
+        // Read from editable fields
+        const dateVal = (el.querySelector<HTMLInputElement>("#ledger-qe-date"))?.value || todayStr();
+        const payeeVal = (el.querySelector<HTMLInputElement>("#ledger-qe-payee"))?.value.trim() || "";
+        const tagsVal = (el.querySelector<HTMLInputElement>("#ledger-qe-tags"))?.value.trim() || "";
+        const tags = tagsVal ? tagsVal.split(",").map(t => t.trim()).filter(Boolean) : [];
+
+        if (!payeeVal) {
+            // Try parsing the quick line as fallback
+            const partial = parseQuickLine(lineInput?.value || "", ds);
+            if (!partial || !partial.postings) return;
+
+            const payeeInput = el.querySelector<HTMLInputElement>("#ledger-qe-payee");
+            payeeInput?.focus();
+            payeeInput?.classList.add("ledger-error");
+            return;
+        }
+
+        // Collect postings from editable fields
+        const postingRows = [...postingsDiv.querySelectorAll<HTMLElement>(".ledger-qe-posting-row")];
+        if (postingRows.length === 0) return;
+
+        const postings: IPosting[] = postingRows.map(row => {
+            const account = (row.querySelector<HTMLSelectElement>(".qe-posting-account"))?.value || "";
+            const amount = parseFloat((row.querySelector<HTMLInputElement>(".qe-posting-amount"))?.value || "0");
+            const currency = (row.querySelector<HTMLSelectElement>(".qe-posting-currency"))?.value || config.defaultCurrency;
+            return {account, amount, currency};
+        });
 
         try {
             const protoInst = protyle.protyle;
@@ -444,12 +526,12 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
 
             const tx: Omit<ITransaction, "blockId"> = {
                 uuid: "",
-                date: partial.date || ds.today(),
-                status: partial.status || "cleared",
-                payee: partial.payee || "",
-                narration: partial.narration || "",
-                postings: partial.postings,
-                tags: partial.tags || [],
+                date: dateVal,
+                status: "cleared",
+                payee: payeeVal,
+                narration: "",
+                postings,
+                tags,
             };
             const blockId = await ds.insertTransaction(tx, parentID, previousID);
             dialog.destroy();
@@ -460,7 +542,7 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     });
 
     el.addEventListener("keydown", (e: KeyboardEvent) => {
-        if (e.key === "Enter") {
+        if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             (el.querySelector<HTMLButtonElement>("#ledger-submit"))?.click();
         }
