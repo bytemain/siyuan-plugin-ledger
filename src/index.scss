@@ -237,12 +237,19 @@
 }
 
 .ledger-bar {
-  fill: var(--b3-theme-primary);
   opacity: 0.75;
 
   &:hover {
     opacity: 1;
   }
+}
+
+.ledger-bar-income {
+  fill: #2ecc71;
+}
+
+.ledger-bar-expense {
+  fill: #e74c3c;
 }
 
 .ledger-bar-label {

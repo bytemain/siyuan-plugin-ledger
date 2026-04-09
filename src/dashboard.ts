@@ -13,27 +13,44 @@ function escapeHtml(s: string): string {
         .replace(/"/g, "&quot;");
 }
 
-/** Render a simple SVG bar chart for monthly expenses */
-function buildBarChart(monthlyData: Record<string, number>, currency: string, sym: string): string {
-    const months = Object.keys(monthlyData).sort().slice(-12);
+/** Render a simple SVG grouped bar chart for monthly income & expenses */
+function buildBarChart(
+    monthlyExpenses: Record<string, number>,
+    monthlyIncome: Record<string, number>,
+    currency: string,
+    sym: string,
+): string {
+    const allMonths = new Set([
+        ...Object.keys(monthlyExpenses),
+        ...Object.keys(monthlyIncome),
+    ]);
+    const months = [...allMonths].sort().slice(-12);
     if (months.length === 0) return '<div class="ledger-empty">暂无数据</div>';
 
-    const maxVal = Math.max(...months.map(m => monthlyData[m]), 1);
-    const barWidth = 30;
+    const maxVal = Math.max(
+        ...months.map(m => monthlyExpenses[m] || 0),
+        ...months.map(m => monthlyIncome[m] || 0),
+        1,
+    );
+    const halfBar = 14;
+    const groupWidth = halfBar * 2 + 6; // two bars + inner gap
     const gap = 10;
     const svgHeight = 120;
-    const totalWidth = months.length * (barWidth + gap);
+    const totalWidth = months.length * (groupWidth + gap);
 
     const bars = months.map((m, i) => {
-        const val = monthlyData[m] || 0;
-        const h = Math.round((val / maxVal) * 90);
-        const x = i * (barWidth + gap);
-        const y = svgHeight - h - 20;
+        const exp = monthlyExpenses[m] || 0;
+        const inc = monthlyIncome[m] || 0;
+        const hExp = Math.round((exp / maxVal) * 90);
+        const hInc = Math.round((inc / maxVal) * 90);
+        const groupX = i * (groupWidth + gap);
         const label = m.slice(5); // MM
         return `
-      <rect x="${x}" y="${y}" width="${barWidth}" height="${h}" class="ledger-bar" rx="3"/>
-      <text x="${x + barWidth / 2}" y="${svgHeight - 5}" text-anchor="middle" class="ledger-bar-label">${label}</text>
-      <title>${m}: ${sym}${val.toFixed(0)}</title>`;
+      <rect x="${groupX}" y="${svgHeight - hInc - 20}" width="${halfBar}" height="${hInc}" class="ledger-bar ledger-bar-income" rx="2"/>
+      <title>${m} income: ${sym}${inc.toFixed(0)}</title>
+      <rect x="${groupX + halfBar + 2}" y="${svgHeight - hExp - 20}" width="${halfBar}" height="${hExp}" class="ledger-bar ledger-bar-expense" rx="2"/>
+      <title>${m} expense: ${sym}${exp.toFixed(0)}</title>
+      <text x="${groupX + halfBar}" y="${svgHeight - 5}" text-anchor="middle" class="ledger-bar-label">${label}</text>`;
     }).join("");
 
     return `<svg viewBox="0 0 ${totalWidth} ${svgHeight}" class="ledger-chart">
@@ -121,17 +138,20 @@ export function buildDashboardHTML(opts: IDashboardRenderOptions): string {
     // ── Summary ──────────────────────────────────────────────────────────
     const {income, expenses, net} = ds.summarize(transactions, currency);
 
-    // ── Monthly expenses chart ───────────────────────────────────────────
-    const monthlyData: Record<string, number> = {};
+    // ── Monthly income & expenses chart ─────────────────────────────────
+    const monthlyExpenseData: Record<string, number> = {};
+    const monthlyIncomeData: Record<string, number> = {};
     for (const tx of allTransactions) {
         const ym = tx.date.slice(0, 7);
         for (const p of tx.postings) {
             if (p.account.startsWith("Expenses:") && p.amount > 0) {
-                monthlyData[ym] = (monthlyData[ym] || 0) + p.amount;
+                monthlyExpenseData[ym] = (monthlyExpenseData[ym] || 0) + p.amount;
+            } else if (p.account.startsWith("Income:") && p.amount < 0) {
+                monthlyIncomeData[ym] = (monthlyIncomeData[ym] || 0) + Math.abs(p.amount);
             }
         }
     }
-    const barChart = buildBarChart(monthlyData, currency, symDef);
+    const barChart = buildBarChart(monthlyExpenseData, monthlyIncomeData, currency, symDef);
 
     // ── Expense by category ──────────────────────────────────────────────
     const catExpenses: Record<string, number> = {};
