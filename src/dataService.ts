@@ -270,14 +270,21 @@ export class DataService {
     // ─── Query ───────────────────────────────────────────────────────────
 
     /**
-     * Sanitize a value used in a LIKE clause to prevent SQL injection.
-     * Escapes SQLite LIKE special characters (%, _, backslash).
+     * Sanitize a user-supplied value for embedding inside a SQLite single-quoted
+     * LIKE expression.  Escapes:
+     *   - Single quotes (SQL string delimiter): ' → ''
+     *   - LIKE wildcards (with ESCAPE '\'): % → \%, _ → \_
+     *   - The escape character itself: \ → \\
+     *
+     * Note: SiYuan's /api/query/sql does not support parameterised queries,
+     * so explicit escaping is the only available defence.
      */
     private sanitizeLikeParam(value: string): string {
         return value
-            .replace(/\\/g, "\\\\")
-            .replace(/%/g, "\\%")
-            .replace(/_/g, "\\_");
+            .replace(/\\/g, "\\\\")   // escape the ESCAPE char first
+            .replace(/'/g, "''")      // escape SQLite string delimiter
+            .replace(/%/g, "\\%")     // escape LIKE wildcard
+            .replace(/_/g, "\\_");    // escape LIKE wildcard
     }
 
     async queryAllTransactions(): Promise<ITransaction[]> {
@@ -313,7 +320,7 @@ export class DataService {
             fetchPost(
                 "/api/query/sql",
                 {
-                    stmt: `SELECT id, ial FROM blocks WHERE ial LIKE '%${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"%' AND ial LIKE '%${ATTR_DATE}="${safeYearMonth}%' ORDER BY id DESC`,
+                    stmt: `SELECT id, ial FROM blocks WHERE ial LIKE '%${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"%' AND ial LIKE '%${ATTR_DATE}="${safeYearMonth}%' ESCAPE '\\' ORDER BY id DESC`,
                 },
                 (res) => {
                     if (res.code !== 0) {
@@ -333,7 +340,7 @@ export class DataService {
             fetchPost(
                 "/api/query/sql",
                 {
-                    stmt: `SELECT id, ial FROM blocks WHERE ial LIKE '%${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"%' AND ial LIKE '%${ATTR_PAYEE}="${safePayee}%' ORDER BY id DESC`,
+                    stmt: `SELECT id, ial FROM blocks WHERE ial LIKE '%${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"%' AND ial LIKE '%${ATTR_PAYEE}="${safePayee}%' ESCAPE '\\' ORDER BY id DESC`,
                 },
                 (res) => {
                     if (res.code !== 0) {

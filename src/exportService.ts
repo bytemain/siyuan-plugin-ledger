@@ -78,11 +78,11 @@ export function exportToBeancount(
     }
     const accountMap = new Map(accounts.map(a => [a.path, a]));
 
-    const openDate = config.currencySymbols ? "2020-01-01" : "2020-01-01";
+    const DEFAULT_OPEN_DATE = "2020-01-01";
     for (const path of [...usedPaths].sort()) {
         const acc = accountMap.get(path);
         const currencies = acc?.currencies?.join(", ") || config.defaultCurrency;
-        const date = acc?.openDate || openDate;
+        const date = acc?.openDate || DEFAULT_OPEN_DATE;
         lines.push(`${date} open ${path} ${currencies}`);
     }
     lines.push("");
