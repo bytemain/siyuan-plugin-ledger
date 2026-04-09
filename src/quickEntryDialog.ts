@@ -284,7 +284,7 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
         };
 
         try {
-            const protoInst = protyle.getInstance();
+            const protoInst = protyle.protyle;
             const element = protoInst?.wysiwyg?.element;
             const parentID = protoInst?.block?.rootID || "";
             const previousID = element?.lastElementChild
@@ -435,7 +435,7 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
         if (!partial || !partial.postings) return;
 
         try {
-            const protoInst = protyle.getInstance();
+            const protoInst = protyle.protyle;
             const element = protoInst?.wysiwyg?.element;
             const parentID = protoInst?.block?.rootID || "";
             const previousID = element?.lastElementChild
