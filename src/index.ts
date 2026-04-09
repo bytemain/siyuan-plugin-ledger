@@ -406,7 +406,7 @@ export default class LedgerPlugin extends Plugin {
         const thisMonth = new Date().toISOString().slice(0, 7);
         const monthlyExpense = cache.monthlyExpenses[thisMonth] || 0;
 
-        // Monthly income from cache (stored alongside expenses)
+        // Monthly income from cache (optional chaining for backward compat with older cached data)
         const monthlyIncome = cache.monthlyIncome?.[thisMonth] || 0;
 
         // Net assets (total assets - total liabilities)
@@ -644,7 +644,7 @@ export default class LedgerPlugin extends Plugin {
     <label class="ledger-label">${i18n.tags}</label>
     <input id="ledger-edit-tags" class="b3-text-field fn__block" type="text" value="${(tx.tags || []).join(", ")}">
   </div>
-  <div class="ledger-section-title" style="margin-top:8px">Postings</div>
+  <div class="ledger-section-title" style="margin-top:8px">${i18n.postings}</div>
   <div id="ledger-edit-postings">
     ${postingRowsHtml}
   </div>
