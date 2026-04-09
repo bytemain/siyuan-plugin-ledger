@@ -401,6 +401,7 @@ export class DataService {
         }
         // Invalidate balance cache
         this.cache.accountBalances = {};
+        this.cache.monthlyExpenses = {};
         this.cache.lastQueryTime = 0;
     }
 

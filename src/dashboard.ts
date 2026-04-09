@@ -122,7 +122,15 @@ export function buildDashboardHTML(opts: IDashboardRenderOptions): string {
     const {income, expenses, net} = ds.summarize(transactions, currency);
 
     // ── Monthly expenses chart ───────────────────────────────────────────
-    const monthlyData = ds.getCache().monthlyExpenses;
+    const monthlyData: Record<string, number> = {};
+    for (const tx of allTransactions) {
+        const ym = tx.date.slice(0, 7);
+        for (const p of tx.postings) {
+            if (p.account.startsWith("Expenses:") && p.amount > 0) {
+                monthlyData[ym] = (monthlyData[ym] || 0) + p.amount;
+            }
+        }
+    }
     const barChart = buildBarChart(monthlyData, currency, symDef);
 
     // ── Expense by category ──────────────────────────────────────────────
