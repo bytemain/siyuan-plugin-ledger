@@ -103,5 +103,6 @@
   "confirmDeleteTx": "Confirm deleting this transaction?",
   "txDeleted": "Transaction deleted",
   "txInserted": "Transaction recorded",
-  "openDocFirst": "Please open a document first"
+  "openDocFirst": "Please open a document first",
+  "noSuggestions": "No suggestions"
 }

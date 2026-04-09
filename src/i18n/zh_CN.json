@@ -103,5 +103,6 @@
   "confirmDeleteTx": "确认删除这笔交易？",
   "txDeleted": "交易已删除",
   "txInserted": "交易已记录",
-  "openDocFirst": "请先打开一个文档"
+  "openDocFirst": "请先打开一个文档",
+  "noSuggestions": "无建议"
 }
