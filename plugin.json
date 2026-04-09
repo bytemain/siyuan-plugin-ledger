@@ -1,9 +1,9 @@
 {
-  "name": "plugin-sample",
-  "author": "Vanessa",
-  "url": "https://github.com/siyuan-note/plugin-sample",
-  "version": "0.4.6",
-  "minAppVersion": "3.5.10",
+  "name": "siyuan-plugin-ledger",
+  "author": "bytemain",
+  "url": "https://github.com/bytemain/siyuan-plugin-ledger",
+  "version": "0.1.0",
+  "minAppVersion": "3.0.0",
   "backends": [
     "windows",
     "linux",
@@ -24,12 +24,12 @@
   ],
   "disabledInPublish": false,
   "displayName": {
-    "default": "Plugin Sample",
-    "zh_CN": "插件示例"
+    "default": "SiYuan Ledger",
+    "zh_CN": "思源记账"
   },
   "description": {
-    "default": "This is a plugin development sample",
-    "zh_CN": "这是一个插件开发示例"
+    "default": "A double-entry bookkeeping plugin for SiYuan Notes — record transactions anywhere, data stays yours.",
+    "zh_CN": "基于思源笔记的纯文本复式记账插件——在笔记中随手记账，数据永远属于你。"
   },
   "readme": {
     "default": "README.md",
@@ -39,13 +39,15 @@
     "openCollective": "",
     "patreon": "",
     "github": "",
-    "custom": [
-      "https://ld246.com/sponsor"
-    ]
+    "custom": []
   },
   "keywords": [
-    "开发者参考",
-    "developer reference",
-    "示例插件"
+    "ledger",
+    "accounting",
+    "finance",
+    "bookkeeping",
+    "记账",
+    "财务",
+    "复式记账"
   ]
 }
