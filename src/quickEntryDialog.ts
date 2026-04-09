@@ -284,9 +284,10 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
         };
 
         try {
-            const protoInst = protyle.getInstance();
-            const element = protoInst?.wysiwyg?.element;
-            const parentID = protoInst?.block?.rootID || "";
+            // protyle is either a Protyle instance or IProtyle object depending on where it comes from
+            const p = (protyle as any).protyle ? (protyle as any).protyle : protyle;
+            const element = p?.wysiwyg?.element;
+            const parentID = p?.block?.rootID || "";
             const previousID = element?.lastElementChild
                 ? (element.lastElementChild as HTMLElement).dataset?.nodeId || ""
                 : "";
@@ -435,9 +436,10 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
         if (!partial || !partial.postings) return;
 
         try {
-            const protoInst = protyle.getInstance();
-            const element = protoInst?.wysiwyg?.element;
-            const parentID = protoInst?.block?.rootID || "";
+            // protyle is either a Protyle instance or IProtyle object depending on where it comes from
+            const p = (protyle as any).protyle ? (protyle as any).protyle : protyle;
+            const element = p?.wysiwyg?.element;
+            const parentID = p?.block?.rootID || "";
             const previousID = element?.lastElementChild
                 ? (element.lastElementChild as HTMLElement).dataset?.nodeId || ""
                 : "";
