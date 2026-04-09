@@ -74,6 +74,7 @@ export interface ILedgerCache {
     lastQueryTime: number;
     accountBalances: Record<string, Record<string, number>>;
     monthlyExpenses: Record<string, number>;
+    monthlyIncome: Record<string, number>;
     recentPayees: string[];
     recentAccounts: string[];
 }
