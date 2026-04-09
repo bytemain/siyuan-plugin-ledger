@@ -67,11 +67,14 @@ export function parseLedgerFile(content: string): {transactions: ITransaction[];
         const line = lines[i];
         const trimmed = line.trim();
 
-        // Skip empty lines and comments
-        if (!trimmed || trimmed.startsWith(";") || trimmed.startsWith("#")) {
-            if (trimmed === "" || trimmed.startsWith(";")) {
-                flushCurrent();
-            }
+        // Empty lines flush the current transaction
+        if (!trimmed) {
+            flushCurrent();
+            continue;
+        }
+
+        // File-level `#` comments are always ignored
+        if (trimmed.startsWith("#")) {
             continue;
         }
 
@@ -94,7 +97,7 @@ export function parseLedgerFile(content: string): {transactions: ITransaction[];
 
         if (!current) continue;
 
-        // Inline comment / narration
+        // Inline comment / narration (`;` inside a transaction body)
         if (trimmed.startsWith(";")) {
             const comment = trimmed.slice(1).trim();
             const tagsMatch = /^:(.+):$/.exec(comment);
@@ -105,6 +108,9 @@ export function parseLedgerFile(content: string): {transactions: ITransaction[];
             }
             continue;
         }
+
+        // File-level `;` comments are also ignored
+        // (handled above when current is null via the `if (!current) continue` path)
 
         // Posting line: account  amount  (indented)
         if (line.startsWith("    ") || line.startsWith("\t")) {
@@ -199,7 +205,7 @@ export function parseBeancountFile(content: string): IBeancountImportResult {
             flushCurrent();
             const status: TransactionStatus = txMatch[2] === "*" ? "cleared" : "pending";
             const tagsRaw = txMatch[5] || "";
-            const tags = (tagsRaw.match(/#(\w+)/g) || []).map(t => t.slice(1));
+            const tags = (tagsRaw.match(/#([^\s#]+)/gu) || []).map(t => t.slice(1));
             current = {
                 date: txMatch[1],
                 status,
