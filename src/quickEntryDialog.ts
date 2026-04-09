@@ -483,8 +483,9 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
                 if (stats.count > 0) {
                     const firstAmtInput = postingsDiv.querySelector<HTMLInputElement>(".qe-posting-amount");
                     if (firstAmtInput) {
+                        const currentVal = parseFloat(firstAmtInput.value);
                         const avg = Math.round(stats.totalAmount / stats.count);
-                        if (avg > 0 && firstAmtInput.value === "0") {
+                        if (avg > 0 && (!firstAmtInput.value || currentVal === 0)) {
                             firstAmtInput.value = String(avg);
                             // Also update the counter-posting
                             const allAmtInputs = postingsDiv.querySelectorAll<HTMLInputElement>(".qe-posting-amount");

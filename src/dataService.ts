@@ -388,6 +388,17 @@ export class DataService {
 
     // ─── Cache maintenance ───────────────────────────────────────────────
 
+    /** Extract the positive-amount sum and the first Expenses/Income posting from a transaction. */
+    private extractTxStats(postings: IPosting[]): { positiveAmount: number; categoryAccount: string } {
+        const positiveAmount = postings
+            .filter(p => p.amount > 0)
+            .reduce((sum, p) => sum + p.amount, 0);
+        const categoryPosting = postings.find(
+            p => p.account.startsWith("Expenses:") || p.account.startsWith("Income:"),
+        );
+        return { positiveAmount, categoryAccount: categoryPosting?.account || "" };
+    }
+
     private updateCacheAfterInsert(tx: ITransaction) {
         // Update recent payees
         if (tx.payee && !this.cache.recentPayees.includes(tx.payee)) {
@@ -403,23 +414,18 @@ export class DataService {
         }
         // Update payee history
         if (tx.payee) {
-            const positiveAmount = tx.postings
-                .filter(p => p.amount > 0)
-                .reduce((sum, p) => sum + p.amount, 0);
-            const expenseOrIncomePosting = tx.postings.find(
-                p => p.account.startsWith("Expenses:") || p.account.startsWith("Income:"),
-            );
+            const { positiveAmount, categoryAccount } = this.extractTxStats(tx.postings);
             const existing = this.cache.payeeHistory[tx.payee];
             if (existing) {
                 existing.count++;
                 existing.totalAmount += positiveAmount;
-                if (expenseOrIncomePosting) existing.lastAccount = expenseOrIncomePosting.account;
+                if (categoryAccount) existing.lastAccount = categoryAccount;
                 existing.lastDate = tx.date;
             } else {
                 this.cache.payeeHistory[tx.payee] = {
                     count: 1,
                     totalAmount: positiveAmount,
-                    lastAccount: expenseOrIncomePosting?.account || "",
+                    lastAccount: categoryAccount,
                     lastDate: tx.date,
                 };
             }
@@ -455,23 +461,18 @@ export class DataService {
         const history: Record<string, IPayeeStats> = {};
         for (const tx of transactions) {
             if (!tx.payee) continue;
-            const positiveAmount = tx.postings
-                .filter(p => p.amount > 0)
-                .reduce((sum, p) => sum + p.amount, 0);
-            const expenseOrIncomePosting = tx.postings.find(
-                p => p.account.startsWith("Expenses:") || p.account.startsWith("Income:"),
-            );
+            const { positiveAmount, categoryAccount } = this.extractTxStats(tx.postings);
             const existing = history[tx.payee];
             if (existing) {
                 existing.count++;
                 existing.totalAmount += positiveAmount;
-                if (expenseOrIncomePosting) existing.lastAccount = expenseOrIncomePosting.account;
+                if (categoryAccount) existing.lastAccount = categoryAccount;
                 if (tx.date > existing.lastDate) existing.lastDate = tx.date;
             } else {
                 history[tx.payee] = {
                     count: 1,
                     totalAmount: positiveAmount,
-                    lastAccount: expenseOrIncomePosting?.account || "",
+                    lastAccount: categoryAccount,
                     lastDate: tx.date,
                 };
             }
