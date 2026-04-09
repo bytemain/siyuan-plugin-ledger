@@ -1,14 +1,33 @@
 [中文](https://github.com/siyuan-note/plugin-sample/blob/main/README_zh_CN.md)
 
-# SiYuan plugin sample
+# SiYuan Ledger Plugin
+
+A native double-entry bookkeeping plugin for SiYuan Note, designed to help you manage your finances directly within your knowledge base.
+
+## Features
+
+- **Double-Entry Bookkeeping:** All transactions are stored as standard SiYuan blocks with custom attributes (IAL) for metadata.
+- **Visual Dashboard:** Built-in dashboard with monthly income/expense bar charts and category expense pie charts (no external chart libraries required).
+- **Multiple Entry Modes:** 
+  - Forms for expenses, income, and transfers.
+  - Quick Entry mode supporting natural language parsing (e.g., `2024-03-15 lunch 58 wechat`).
+- **Account Management:** Complete account tree system for creating, editing, configuring icons, and closing five main account types.
+- **Data Export:** Export your local ledger data to Ledger, Beancount, or CSV formats for further analysis.
+- **Deep Integration:** 
+  - Slash commands (`/ledger`, `/income`, `/transfer`, `/quick`) to open panels anywhere.
+  - Global shortcut mapping (e.g., `⇧⌘E` for expense).
+  - Block right-click menu for quick editing or deletion of existing entries.
+- **Dock Panel:** Always-on sidebar panel to monitor monthly core expenses and real-time balances of major assets.
+- **Multi-Currency & Auto-Balancing:** Set a default currency and let the plugin auto-calculate balancing entries when you only input one side of the transaction.
 
 ## Get started
 
-* Make a copy of this repo as a template with the <kbd>Use this template</kbd> button, please note that the repo name must be the same as the plugin name, the default branch must be `main`
-* Clone your repo to a local development folder. For convenience, you can place this folder in your `{workspace}/data/plugins/` folder
-* Install [NodeJS](https://nodejs.org/en/download) and [pnpm](https://pnpm.io/installation), then run `pnpm i` in the command line under your repo folder
-* Execute `pnpm run dev` for real-time compilation
-* Open SiYuan marketplace and enable plugin in downloaded tab
+1. Install the plugin from the SiYuan marketplace.
+2. Go to the plugin settings to configure your default currency (e.g., USD, CNY) and default payment account (e.g., Assets:Cash).
+3. Click the plugin icon in the top bar to open the account management interface and initialize your asset structure and income/expense categories.
+4. In your daily notes, type `/quick` to enter a single-line transaction like `2024-03-15 lunch 15 cash`.
+5. Open the top bar menu or press `⇧⌘L` to open the data dashboard and review your monthly financial reports and transaction history.
+6. Periodically backup your data using the import/export functionality.
 
 ## Development
 
