@@ -113,5 +113,10 @@
   "postingsRequired": "At least 2 postings required",
   "importFailed": "Import failed",
   "openDocFirst": "Please open a document first",
-  "noSuggestions": "No suggestions"
+  "noSuggestions": "No suggestions",
+  "quickCreditCardPayment": "Pay Credit Card",
+  "quickReimbursement": "Record Reimbursement",
+  "creditCardPaymentHint": "Transfer from asset account to credit card",
+  "reimbursementHint": "Record reimbursement income",
+  "pendingReimbursement": "pending-reimbursement"
 }
