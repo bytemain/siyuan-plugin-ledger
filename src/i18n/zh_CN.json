@@ -113,5 +113,10 @@
   "postingsRequired": "至少需要两条过账",
   "importFailed": "导入失败",
   "openDocFirst": "请先打开一个文档",
-  "noSuggestions": "无建议"
+  "noSuggestions": "无建议",
+  "quickCreditCardPayment": "还信用卡",
+  "quickReimbursement": "记一笔报销收入",
+  "creditCardPaymentHint": "从资产账户还信用卡",
+  "reimbursementHint": "记录报销到账收入",
+  "pendingReimbursement": "待报销"
 }
