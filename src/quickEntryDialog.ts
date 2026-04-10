@@ -62,7 +62,7 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
     const title = titleMap[mode];
 
     // Account selectors
-    const expenseAccounts = allAccountOptions(ds);
+    const expenseCategoryAccounts = accountOptions(ds, "Expenses");
     const assetAccounts = ds.getAccountsByPrefix("Assets")
         .concat(ds.getAccountsByPrefix("Liabilities"))
         .map(a => `<option value="${a.path}">${a.icon || ""} ${a.path}${a.note ? " (" + a.note + ")" : ""}</option>`)
@@ -74,7 +74,7 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
 
     if (isExpense) {
         fromAccountHtml = `<select id="ledger-from-account" class="b3-select fn__block">${assetAccounts}</select>`;
-        toAccountHtml = `<select id="ledger-to-account" class="b3-select fn__block">${expenseAccounts}</select>`;
+        toAccountHtml = `<select id="ledger-to-account" class="b3-select fn__block">${expenseCategoryAccounts}</select>`;
     } else if (isIncome) {
         fromAccountHtml = `<select id="ledger-from-account" class="b3-select fn__block">${incomeAccounts}</select>`;
         toAccountHtml = `<select id="ledger-to-account" class="b3-select fn__block">${assetAccounts}</select>`;
@@ -214,7 +214,7 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
             const rowDiv = document.createElement("div");
             rowDiv.className = "ledger-split-row";
             rowDiv.innerHTML = `
-        <select class="b3-select split-account" style="flex:1">${expenseAccounts}</select>
+        <select class="b3-select split-account" style="flex:1">${expenseCategoryAccounts}</select>
         <input class="b3-text-field split-amount" type="number" min="0" step="0.01" placeholder="0.00" style="width:90px">
         <button class="b3-button b3-button--outline split-remove" style="padding:0 6px" data-index="${rowIndex}">×</button>`;
             rowDiv.querySelector(".split-remove")?.addEventListener("click", () => rowDiv.remove());
