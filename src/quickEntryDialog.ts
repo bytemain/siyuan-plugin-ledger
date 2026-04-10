@@ -4,7 +4,7 @@
 import {Dialog, Protyle} from "siyuan";
 import {DataService} from "./dataService";
 import {IPosting, ITransaction} from "./types";
-import {ACCOUNT_ALIASES} from "./defaultAccounts";
+import {ACCOUNT_ALIASES, CREDIT_CARD_PAYMENT_PATTERNS, REIMBURSEMENT_PATTERNS} from "./defaultAccounts";
 import {attachPayeeAutocomplete} from "./autocomplete";
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
@@ -45,6 +45,12 @@ export interface IQuickEntryOptions {
     dataService: DataService;
     i18n: Record<string, string>;
     onSuccess?: (blockId: string) => void;
+    /** Pre-select the "from" account (e.g. for credit card payment or reimbursement) */
+    defaultFromAccount?: string;
+    /** Pre-select the "to" account (e.g. for credit card payment) */
+    defaultToAccount?: string;
+    /** Pre-fill tags (e.g. ["报销"] for reimbursement) */
+    defaultTags?: string[];
 }
 
 export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
@@ -192,11 +198,26 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
     }
 
     // ── Set defaults ────────────────────────────────────────────────────
-    const defDebit = config.defaultDebitAccount;
+    const defFromAccount = opts.defaultFromAccount || config.defaultDebitAccount;
     const fromSelect = el.querySelector<HTMLSelectElement>("#ledger-from-account");
     if (fromSelect) {
-        const opt = fromSelect.querySelector<HTMLOptionElement>(`option[value="${defDebit}"]`);
-        if (opt) opt.selected = true;
+        fromSelect.value = defFromAccount;
+    }
+
+    // Set default "to" account if specified
+    if (opts.defaultToAccount) {
+        const toSelect = el.querySelector<HTMLSelectElement>("#ledger-to-account");
+        if (toSelect) {
+            toSelect.value = opts.defaultToAccount;
+        }
+    }
+
+    // Pre-fill tags if specified
+    if (opts.defaultTags && opts.defaultTags.length > 0) {
+        const tagsInput = el.querySelector<HTMLInputElement>("#ledger-tags");
+        if (tagsInput && !tagsInput.value) {
+            tagsInput.value = opts.defaultTags.join(", ");
+        }
     }
 
     // ── Split bill toggle ───────────────────────────────────────────────
@@ -349,13 +370,39 @@ export interface ISimpleEntryOptions {
  *   "午饭 58"
  *   "打车回家 32 微信"
  *   "2024-03-15 海底捞 258 信用卡 标签:聚餐"
+ *   "还信用卡 5000 银行卡"         — credit card bill payment (transfer)
+ *   "还招行 5000"                  — credit card bill payment to specific card
+ *   "报销 差旅费 380"              — reimbursement income
+ *   "报销 差旅费 380 银行卡"       — reimbursement income to specific account
  */
-function parseQuickLine(line: string, ds: DataService): Partial<ITransaction> | null {
-    const tokens = line.trim().split(/\s+/);
+export function parseQuickLine(line: string, ds: DataService): Partial<ITransaction> | null {
+    const trimmed = line.trim();
+    const tokens = trimmed.split(/\s+/);
     if (tokens.length === 0) return null;
 
-    const config = ds.getConfig();
+    // Strip optional leading date to find the keyword token
+    let keywordStart = 0;
+    if (/^\d{4}[-\/]\d{2}[-\/]\d{2}$/.test(tokens[0])) {
+        keywordStart = 1;
+    }
+    const keywordToken = tokens[keywordStart] || "";
 
+    // ── Check for credit card bill payment (还信用卡/还招行/还工行...) ──
+    for (const {pattern, targetAccount} of CREDIT_CARD_PAYMENT_PATTERNS) {
+        if (pattern.test(keywordToken)) {
+            return parseCreditCardPayment(tokens, pattern, targetAccount, ds);
+        }
+    }
+
+    // ── Check for reimbursement income (报销/收到报销...) ──
+    for (const pattern of REIMBURSEMENT_PATTERNS) {
+        if (pattern.test(keywordToken)) {
+            return parseReimbursement(tokens, pattern, ds);
+        }
+    }
+
+    // ── Standard expense parsing ──
+    const config = ds.getConfig();
     let idx = 0;
     let date = ds.today();
     let payee = "";
@@ -408,6 +455,126 @@ function parseQuickLine(line: string, ds: DataService): Partial<ITransaction> | 
         narration: "",
         postings,
         tags,
+    };
+}
+
+/**
+ * Parse a credit card bill payment line.
+ * E.g. "还信用卡 5000 银行卡" → transfer from Assets:Bank:Checking to Liabilities:CreditCard:CMB
+ */
+function parseCreditCardPayment(
+    tokens: string[],
+    pattern: RegExp,
+    defaultTargetAccount: string,
+    ds: DataService,
+): Partial<ITransaction> | null {
+    const config = ds.getConfig();
+    let idx = 0;
+    let date = ds.today();
+    let payee = "";
+    let amount = 0;
+    let sourceAccount = "";
+
+    // First token may be a date
+    if (/^\d{4}[-\/]\d{2}[-\/]\d{2}$/.test(tokens[0])) {
+        date = tokens[0].replace(/\//g, "-");
+        idx++;
+    }
+
+    // The payee token is the one matching the pattern (e.g. "还信用卡")
+    if (idx < tokens.length && pattern.test(tokens[idx])) {
+        payee = tokens[idx++];
+    }
+
+    // Remaining tokens: amount and optional source account alias
+    for (; idx < tokens.length; idx++) {
+        const t = tokens[idx];
+        if (/^\d+(\.\d+)?$/.test(t)) {
+            amount = parseFloat(t);
+        } else if (ACCOUNT_ALIASES[t]) {
+            sourceAccount = ACCOUNT_ALIASES[t];
+        }
+    }
+
+    if (!payee || amount <= 0) return null;
+
+    const fromAccount = sourceAccount || config.defaultDebitAccount;
+    const postings: IPosting[] = [
+        {account: defaultTargetAccount, amount: amount, currency: config.defaultCurrency},
+        {account: fromAccount, amount: -amount, currency: config.defaultCurrency},
+    ];
+
+    return {
+        uuid: "",
+        date,
+        status: "cleared",
+        payee,
+        narration: "",
+        postings,
+        tags: [],
+    };
+}
+
+/**
+ * Parse a reimbursement income line.
+ * E.g. "报销 差旅费 380 银行卡" → income from Income:Reimbursement to Assets:Bank:Checking
+ */
+function parseReimbursement(
+    tokens: string[],
+    pattern: RegExp,
+    ds: DataService,
+): Partial<ITransaction> | null {
+    const config = ds.getConfig();
+    let idx = 0;
+    let date = ds.today();
+    let payee = "";
+    let narration = "";
+    let amount = 0;
+    let targetAccount = "";
+    const tags: string[] = [];
+
+    // First token may be a date
+    if (/^\d{4}[-\/]\d{2}[-\/]\d{2}$/.test(tokens[0])) {
+        date = tokens[0].replace(/\//g, "-");
+        idx++;
+    }
+
+    // The trigger token (e.g. "报销" or "收到报销")
+    if (idx < tokens.length && pattern.test(tokens[idx])) {
+        idx++;
+    }
+
+    // Remaining tokens: narration (payee description), amount, optional target account, tags
+    for (; idx < tokens.length; idx++) {
+        const t = tokens[idx];
+        if (/^\d+(\.\d+)?$/.test(t)) {
+            amount = parseFloat(t);
+        } else if (t.startsWith("标签:") || t.startsWith("tags:")) {
+            tags.push(...t.split(":").slice(1));
+        } else if (ACCOUNT_ALIASES[t]) {
+            targetAccount = ACCOUNT_ALIASES[t];
+        } else if (!narration) {
+            narration = t;
+        }
+    }
+
+    if (amount <= 0) return null;
+
+    payee = narration || "报销";
+    const toAccount = targetAccount || config.defaultDebitAccount;
+    const postings: IPosting[] = [
+        {account: "Income:Reimbursement", amount: -amount, currency: config.defaultCurrency},
+        {account: toAccount, amount: amount, currency: config.defaultCurrency},
+    ];
+
+    return {
+        uuid: "",
+        date,
+        status: "cleared",
+        payee,
+        narration: "",
+        postings,
+        tags: tags.length > 0 ? tags : ["报销"],
     };
 }
 

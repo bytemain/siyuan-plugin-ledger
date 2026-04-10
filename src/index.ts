@@ -268,6 +268,22 @@ export default class LedgerPlugin extends Plugin {
                     this.showQuickEntry(protyle, slashBlockId);
                 },
             },
+            {
+                filter: ["还信用卡", "还款", "creditcard", "repay", "hxyk", "hk"],
+                html: `<div class="b3-list-item__first"><span class="b3-list-item__text">💳 ${this.i18n.quickCreditCardPayment}</span></div>`,
+                id: "ledger-creditcard-payment",
+                callback: (protyle: Protyle) => {
+                    this.showCreditCardPayment(protyle);
+                },
+            },
+            {
+                filter: ["报销", "reimbursement", "reimburse", "bx"],
+                html: `<div class="b3-list-item__first"><span class="b3-list-item__text">📋 ${this.i18n.quickReimbursement}</span></div>`,
+                id: "ledger-reimbursement",
+                callback: (protyle: Protyle) => {
+                    this.showReimbursement(protyle);
+                },
+            },
         ];
     }
 
@@ -831,6 +847,46 @@ export default class LedgerPlugin extends Plugin {
         });
     }
 
+    private showCreditCardPayment(protyle?: Protyle) {
+        const p = protyle || this.getActiveProtyle();
+        if (!p) {
+            showMessage("[Ledger] " + this.i18n.openDocFirst);
+            return;
+        }
+        openQuickEntryDialog({
+            mode: "transfer",
+            protyle: p,
+            dataService: this.dataService,
+            i18n: this.i18n,
+            defaultFromAccount: "Assets:Bank:Checking",
+            defaultToAccount: "Liabilities:CreditCard:CMB",
+            onSuccess: () => {
+                showMessage("[Ledger] " + this.i18n.txInserted);
+                this.savePersistedCache();
+            },
+        });
+    }
+
+    private showReimbursement(protyle?: Protyle) {
+        const p = protyle || this.getActiveProtyle();
+        if (!p) {
+            showMessage("[Ledger] " + this.i18n.openDocFirst);
+            return;
+        }
+        openQuickEntryDialog({
+            mode: "income",
+            protyle: p,
+            dataService: this.dataService,
+            i18n: this.i18n,
+            defaultFromAccount: "Income:Reimbursement",
+            defaultTags: ["报销"],
+            onSuccess: () => {
+                showMessage("[Ledger] " + this.i18n.txInserted);
+                this.savePersistedCache();
+            },
+        });
+    }
+
     // ─── Export helpers ──────────────────────────────────────────────────────
 
     private async doExport(format: "ledger" | "beancount" | "csv") {
@@ -933,6 +989,16 @@ export default class LedgerPlugin extends Plugin {
             icon: "iconLedger",
             label: `\u26a1 ${this.i18n.quickEntry}`,
             click: () => this.showQuickEntry(),
+        });
+        menu.addItem({
+            icon: "iconLedger",
+            label: `💳 ${this.i18n.quickCreditCardPayment}`,
+            click: () => this.showCreditCardPayment(),
+        });
+        menu.addItem({
+            icon: "iconLedger",
+            label: `📋 ${this.i18n.quickReimbursement}`,
+            click: () => this.showReimbursement(),
         });
         menu.addSeparator();
         menu.addItem({

@@ -60,10 +60,37 @@ export const ACCOUNT_ALIASES: Record<string, string> = {
     "微信支付": "Assets:WeChatPay",
     "银行卡": "Assets:Bank:Checking",
     "bank": "Assets:Bank:Checking",
+    "储蓄卡": "Assets:Bank:Savings",
     "信用卡": "Liabilities:CreditCard:CMB",
     "credit": "Liabilities:CreditCard:CMB",
+    "招行信用卡": "Liabilities:CreditCard:CMB",
+    "招行": "Liabilities:CreditCard:CMB",
+    "工行信用卡": "Liabilities:CreditCard:ICBC",
+    "工行": "Liabilities:CreditCard:ICBC",
     "现金": "Assets:Cash",
     "cash": "Assets:Cash",
     "花呗": "Liabilities:HuaBei",
     "借呗": "Liabilities:JieBei",
 };
+
+/**
+ * Patterns for detecting credit card bill payment in quick entry.
+ * When matched, the transaction becomes a transfer from an asset account
+ * to a credit card liability account.
+ */
+export const CREDIT_CARD_PAYMENT_PATTERNS: { pattern: RegExp; targetAccount: string }[] = [
+    {pattern: /^还招行/, targetAccount: "Liabilities:CreditCard:CMB"},
+    {pattern: /^还工行/, targetAccount: "Liabilities:CreditCard:ICBC"},
+    {pattern: /^还信用卡/, targetAccount: "Liabilities:CreditCard:CMB"},
+    {pattern: /^还花呗/, targetAccount: "Liabilities:HuaBei"},
+    {pattern: /^还借呗/, targetAccount: "Liabilities:JieBei"},
+];
+
+/**
+ * Patterns for detecting reimbursement income in quick entry.
+ * When matched, the transaction becomes income from Income:Reimbursement.
+ */
+export const REIMBURSEMENT_PATTERNS: RegExp[] = [
+    /^报销/,
+    /^收到报销/,
+];
