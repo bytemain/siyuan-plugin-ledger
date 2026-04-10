@@ -52,6 +52,13 @@ module.exports = (env, argv) => {
     return {
         mode: argv.mode || "development",
         watch: !isPro,
+        watchOptions: {
+            ignored: [
+                "**/node_modules/**",
+                "**/dist/**",
+                "**/package.zip",
+            ],
+        },
         devtool: isPro ? false : "eval",
         output: {
             filename: "[name].js",
