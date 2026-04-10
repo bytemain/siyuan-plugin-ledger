@@ -273,7 +273,8 @@ export default class LedgerPlugin extends Plugin {
                 html: `<div class="b3-list-item__first"><span class="b3-list-item__text">💳 ${this.i18n.quickCreditCardPayment}</span></div>`,
                 id: "ledger-creditcard-payment",
                 callback: (protyle: Protyle) => {
-                    this.showCreditCardPayment(protyle);
+                    const slashBlockId = this.getSlashBlockId(protyle);
+                    this.showCreditCardPayment(protyle, slashBlockId);
                 },
             },
             {
@@ -281,7 +282,8 @@ export default class LedgerPlugin extends Plugin {
                 html: `<div class="b3-list-item__first"><span class="b3-list-item__text">📋 ${this.i18n.quickReimbursement}</span></div>`,
                 id: "ledger-reimbursement",
                 callback: (protyle: Protyle) => {
-                    this.showReimbursement(protyle);
+                    const slashBlockId = this.getSlashBlockId(protyle);
+                    this.showReimbursement(protyle, slashBlockId);
                 },
             },
         ];
@@ -847,7 +849,7 @@ export default class LedgerPlugin extends Plugin {
         });
     }
 
-    private showCreditCardPayment(protyle?: Protyle) {
+    private showCreditCardPayment(protyle?: Protyle, slashBlockId?: string) {
         const p = protyle || this.getActiveProtyle();
         if (!p) {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
@@ -863,11 +865,12 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
     }
 
-    private showReimbursement(protyle?: Protyle) {
+    private showReimbursement(protyle?: Protyle, slashBlockId?: string) {
         const p = protyle || this.getActiveProtyle();
         if (!p) {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
@@ -883,6 +886,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
     }
