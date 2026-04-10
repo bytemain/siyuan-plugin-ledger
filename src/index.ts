@@ -611,8 +611,7 @@ export default class LedgerPlugin extends Plugin {
         for (const block of blocks) {
             // Skip if we already injected a button
             if (block.querySelector(".ledger-edit-btn")) continue;
-            // The block needs relative positioning so the button can be placed absolutely
-            block.style.position = "relative";
+            block.classList.add("ledger-tx-has-edit");
             const btn = document.createElement("button");
             btn.className = "ledger-edit-btn";
             btn.title = this.i18n.editTransaction;

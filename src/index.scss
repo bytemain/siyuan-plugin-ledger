@@ -32,6 +32,10 @@
 
 // ── Inline edit button (upper-right corner) ───────────────────────────────────
 
+.ledger-tx-has-edit {
+  position: relative;
+}
+
 .ledger-edit-btn {
   position: absolute;
   top: 2px;
