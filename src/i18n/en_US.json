@@ -112,5 +112,6 @@
   "txUpdateFailed": "Update failed",
   "postingsRequired": "At least 2 postings required",
   "importFailed": "Import failed",
-  "openDocFirst": "Please open a document first"
+  "openDocFirst": "Please open a document first",
+  "noSuggestions": "No suggestions"
 }

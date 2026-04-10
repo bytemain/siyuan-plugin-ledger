@@ -1,5 +1,5 @@
 import {describe, it, expect} from "vitest";
-import {parseIAL, blockRowToTransaction, generateUUID, buildBlockContent} from "../dataService";
+import {parseIAL, blockRowToTransaction, generateUUID, buildBlockContent, DataService} from "../dataService";
 import {
     ATTR_TYPE,
     ATTR_DATE,
@@ -247,5 +247,208 @@ describe("buildBlockContent", () => {
         };
         const content = buildBlockContent(usdTx, DEFAULT_CONFIG);
         expect(content).toContain("$29.99");
+    });
+});
+
+// ─── buildPayeeHistory / getPayeeStats / searchPayees ─────────────────────────
+
+describe("buildPayeeHistory", () => {
+    const txns: ITransaction[] = [
+        {
+            blockId: "b1", uuid: "u1", date: "2024-03-10", status: "cleared",
+            payee: "海底捞", postings: [
+                {account: "Expenses:Food:Dining", amount: 258, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -258, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b2", uuid: "u2", date: "2024-03-15", status: "cleared",
+            payee: "海底捞", postings: [
+                {account: "Expenses:Food:Dining", amount: 302, currency: "CNY"},
+                {account: "Assets:WeChatPay", amount: -302, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b3", uuid: "u3", date: "2024-03-12", status: "cleared",
+            payee: "滴滴出行", postings: [
+                {account: "Expenses:Transport:Taxi", amount: 32, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -32, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b4", uuid: "u4", date: "2024-03-14", status: "cleared",
+            payee: "海底捞火锅", postings: [
+                {account: "Expenses:Food:Dining", amount: 199, currency: "CNY"},
+                {account: "Assets:Cash", amount: -199, currency: "CNY"},
+            ],
+        },
+    ];
+
+    const ds = new DataService();
+
+    it("builds payee history with correct count and totalAmount", () => {
+        const history = ds.buildPayeeHistory(txns);
+        expect(history["海底捞"]).toBeDefined();
+        expect(history["海底捞"].count).toBe(2);
+        expect(history["海底捞"].totalAmount).toBe(258 + 302);
+    });
+
+    it("tracks the most recent account and date", () => {
+        const history = ds.buildPayeeHistory(txns);
+        // 2024-03-15 is later, so lastDate should be that
+        expect(history["海底捞"].lastDate).toBe("2024-03-15");
+        expect(history["海底捞"].lastAccount).toBe("Expenses:Food:Dining");
+    });
+
+    it("correctly handles single-transaction payees", () => {
+        const history = ds.buildPayeeHistory(txns);
+        expect(history["滴滴出行"].count).toBe(1);
+        expect(history["滴滴出行"].totalAmount).toBe(32);
+        expect(history["滴滴出行"].lastAccount).toBe("Expenses:Transport:Taxi");
+    });
+
+    it("skips transactions without payee", () => {
+        const txnsWithEmpty: ITransaction[] = [
+            {
+                blockId: "b5", uuid: "u5", date: "2024-03-20", status: "cleared",
+                payee: "", postings: [
+                    {account: "Expenses:Food:Dining", amount: 50, currency: "CNY"},
+                    {account: "Assets:Cash", amount: -50, currency: "CNY"},
+                ],
+            },
+        ];
+        const history = ds.buildPayeeHistory(txnsWithEmpty);
+        expect(Object.keys(history)).toHaveLength(0);
+    });
+});
+
+describe("searchPayees", () => {
+    const ds = new DataService();
+    const txns: ITransaction[] = [
+        {
+            blockId: "b1", uuid: "u1", date: "2024-03-10", status: "cleared",
+            payee: "海底捞", postings: [
+                {account: "Expenses:Food:Dining", amount: 258, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -258, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b2", uuid: "u2", date: "2024-03-11", status: "cleared",
+            payee: "海底捞", postings: [
+                {account: "Expenses:Food:Dining", amount: 300, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -300, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b3", uuid: "u3", date: "2024-03-12", status: "cleared",
+            payee: "海底捞火锅", postings: [
+                {account: "Expenses:Food:Dining", amount: 199, currency: "CNY"},
+                {account: "Assets:Cash", amount: -199, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b4", uuid: "u4", date: "2024-03-13", status: "cleared",
+            payee: "滴滴出行", postings: [
+                {account: "Expenses:Transport:Taxi", amount: 32, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -32, currency: "CNY"},
+            ],
+        },
+    ];
+
+    // Set up cache with payee history
+    ds.setCache({
+        ...ds.getCache(),
+        payeeHistory: ds.buildPayeeHistory(txns),
+    });
+
+    it("returns all payees sorted by count when query is empty", () => {
+        const results = ds.searchPayees("");
+        expect(results.length).toBe(3);
+        expect(results[0]).toBe("海底捞"); // count=2, highest
+    });
+
+    it("filters by prefix match — 海 returns 海底捞 first then 海底捞火锅", () => {
+        const results = ds.searchPayees("海");
+        expect(results.length).toBe(2);
+        expect(results).toContain("海底捞");
+        expect(results).toContain("海底捞火锅");
+    });
+
+    it("filters by substring match", () => {
+        const results = ds.searchPayees("底捞");
+        expect(results.length).toBe(2);
+    });
+
+    it("returns empty array when no match", () => {
+        const results = ds.searchPayees("xyz不存在");
+        expect(results.length).toBe(0);
+    });
+
+    it("is case-insensitive for English payees", () => {
+        // Add an English payee
+        const cache = ds.getCache();
+        cache.payeeHistory["Starbucks"] = {count: 5, totalAmount: 150, lastAccount: "Expenses:Food:Dining", lastDate: "2024-03-15"};
+        ds.setCache(cache);
+
+        const results = ds.searchPayees("star");
+        expect(results).toContain("Starbucks");
+
+        const results2 = ds.searchPayees("STAR");
+        expect(results2).toContain("Starbucks");
+    });
+
+    it("respects the limit parameter", () => {
+        const results = ds.searchPayees("", 2);
+        expect(results.length).toBe(2);
+    });
+});
+
+describe("getPayeeStats", () => {
+    const ds = new DataService();
+    const txns: ITransaction[] = [
+        {
+            blockId: "b1", uuid: "u1", date: "2024-03-10", status: "cleared",
+            payee: "海底捞", postings: [
+                {account: "Expenses:Food:Dining", amount: 258, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -258, currency: "CNY"},
+            ],
+        },
+    ];
+    ds.setCache({...ds.getCache(), payeeHistory: ds.buildPayeeHistory(txns)});
+
+    it("returns stats for a known payee", () => {
+        const stats = ds.getPayeeStats("海底捞");
+        expect(stats).toBeDefined();
+        expect(stats!.count).toBe(1);
+        expect(stats!.totalAmount).toBe(258);
+    });
+
+    it("returns undefined for unknown payee", () => {
+        expect(ds.getPayeeStats("未知商家")).toBeUndefined();
+    });
+
+    it("calculates average correctly", () => {
+        const txns2: ITransaction[] = [
+            {
+                blockId: "b1", uuid: "u1", date: "2024-03-10", status: "cleared",
+                payee: "TestPayee", postings: [
+                    {account: "Expenses:Food:Dining", amount: 100, currency: "CNY"},
+                    {account: "Assets:Alipay", amount: -100, currency: "CNY"},
+                ],
+            },
+            {
+                blockId: "b2", uuid: "u2", date: "2024-03-12", status: "cleared",
+                payee: "TestPayee", postings: [
+                    {account: "Expenses:Food:Dining", amount: 200, currency: "CNY"},
+                    {account: "Assets:Alipay", amount: -200, currency: "CNY"},
+                ],
+            },
+        ];
+        const ds2 = new DataService();
+        ds2.setCache({...ds2.getCache(), payeeHistory: ds2.buildPayeeHistory(txns2)});
+        const stats = ds2.getPayeeStats("TestPayee");
+        expect(stats).toBeDefined();
+        const avg = stats!.totalAmount / stats!.count;
+        expect(avg).toBe(150);
     });
 });

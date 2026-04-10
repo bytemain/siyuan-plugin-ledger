@@ -90,6 +90,13 @@
   white-space: pre-wrap;
 }
 
+.ledger-qe-posting-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
 // ── Tab bar (import/export dialog) ────────────────────────────────────────────
 
 .ledger-tab-bar {
@@ -442,6 +449,60 @@
   text-align: left;
   padding: 6px 10px;
   font-size: 12px;
+}
+
+// ── Autocomplete dropdown ─────────────────────────────────────────────────────
+
+.ledger-autocomplete-dropdown {
+  background: var(--b3-theme-surface);
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+  margin-top: -6px;
+  margin-bottom: 6px;
+  margin-left: 88px; // align with input (past label)
+}
+
+.ledger-ac-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+
+  &:hover,
+  &.ledger-ac-active {
+    background: var(--b3-list-hover);
+  }
+}
+
+.ledger-ac-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ledger-ac-badges {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.ledger-ac-count {
+  font-size: 11px;
+  color: var(--b3-theme-on-surface-muted, #888);
+}
+
+.ledger-ac-avg {
+  font-size: 11px;
+  color: var(--b3-theme-primary);
+  font-family: var(--b3-font-family-code);
 }
 
 // ── Account manager dialog ────────────────────────────────────────────────────

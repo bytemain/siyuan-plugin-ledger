@@ -153,7 +153,10 @@ export default class LedgerPlugin extends Plugin {
                 this.dataService.setAccounts(DEFAULT_ACCOUNTS);
             }
             if (cacheData && typeof cacheData === "object") {
-                this.dataService.setCache(cacheData as ILedgerCache);
+                const c = cacheData as ILedgerCache;
+                // Migration: ensure payeeHistory exists for caches saved before this feature
+                if (!c.payeeHistory) c.payeeHistory = {};
+                this.dataService.setCache(c);
             }
         } catch (e) {
             console.warn("[Ledger] loadPersistedData failed:", e);

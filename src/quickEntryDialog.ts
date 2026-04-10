@@ -5,6 +5,7 @@ import {Dialog, Protyle} from "siyuan";
 import {DataService} from "./dataService";
 import {IPosting, ITransaction} from "./types";
 import {ACCOUNT_ALIASES} from "./defaultAccounts";
+import {attachPayeeAutocomplete} from "./autocomplete";
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
@@ -60,13 +61,6 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
     };
     const title = titleMap[mode];
 
-    // Auto-complete suggestions
-    const cache = ds.getCache();
-    const payeeSuggestions = cache.recentPayees.slice(0, 8);
-    const datalistHtml = payeeSuggestions.length
-        ? `<datalist id="ledger-payee-list">${payeeSuggestions.map(p => `<option value="${p}">`).join("")}</datalist>`
-        : "";
-
     // Account selectors
     const expenseAccounts = allAccountOptions(ds);
     const assetAccounts = ds.getAccountsByPrefix("Assets")
@@ -97,7 +91,6 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
     const splitToggleId = "ledger-split-toggle";
 
     const content = `<div class="b3-dialog__content ledger-dialog">
-  ${datalistHtml}
   <div class="ledger-form-row">
     <label class="ledger-label">${i18n.date}</label>
     <input id="ledger-date" class="b3-text-field fn__block" type="date" value="${todayStr()}">
@@ -112,7 +105,7 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
   </div>
   <div class="ledger-form-row">
     <label class="ledger-label">${i18n.payee}</label>
-    <input id="ledger-payee" class="b3-text-field fn__block" type="text" list="ledger-payee-list" placeholder="${i18n.payeePlaceholder}">
+    <input id="ledger-payee" class="b3-text-field fn__block" type="text" placeholder="${i18n.payeePlaceholder}" autocomplete="off">
   </div>
   <div class="ledger-form-row">
     <label class="ledger-label">${i18n.amount}</label>
@@ -169,6 +162,34 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
     });
 
     const el = dialog.element;
+
+    // ── Attach payee autocomplete with category inference + amount pre-fill ─
+    const payeeInput = el.querySelector<HTMLInputElement>("#ledger-payee");
+    if (payeeInput) {
+        attachPayeeAutocomplete({
+            input: payeeInput,
+            dataService: ds,
+            i18n,
+            onSelect: (selectedPayee: string) => {
+                const stats = ds.getPayeeStats(selectedPayee);
+                if (!stats) return;
+                // Amount pre-fill: use historical average
+                const amountInput = el.querySelector<HTMLInputElement>("#ledger-amount");
+                if (amountInput && !amountInput.value) {
+                    const avg = Math.round(stats.totalAmount / stats.count);
+                    if (avg > 0) amountInput.value = String(avg);
+                }
+                // Category inference: select the most recently used account
+                if (stats.lastAccount) {
+                    const toSelect = el.querySelector<HTMLSelectElement>("#ledger-to-account");
+                    if (toSelect) {
+                        const opt = [...toSelect.options].find(o => o.value === stats.lastAccount);
+                        if (opt) toSelect.value = stats.lastAccount;
+                    }
+                }
+            },
+        });
+    }
 
     // ── Set defaults ────────────────────────────────────────────────────
     const defDebit = config.defaultDebitAccount;
@@ -368,7 +389,11 @@ function parseQuickLine(line: string, ds: DataService): Partial<ITransaction> | 
     if (!payee || amount <= 0) return null;
 
     const fromAccount = accountAlias || config.defaultDebitAccount;
-    const expenseAccount = "Expenses:Food:Dining"; // default
+    // Category inference: use payee history if available, otherwise default
+    const payeeStats = ds.getPayeeStats(payee);
+    const expenseAccount = (payeeStats?.lastAccount && payeeStats.lastAccount.startsWith("Expenses:"))
+        ? payeeStats.lastAccount
+        : "Expenses:Food:Dining";
 
     const postings: IPosting[] = [
         {account: expenseAccount, amount, currency: config.defaultCurrency},
@@ -388,6 +413,14 @@ function parseQuickLine(line: string, ds: DataService): Partial<ITransaction> | 
 
 export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     const {protyle, dataService: ds, i18n, onSuccess} = opts;
+    const config = ds.getConfig();
+    const expenseAccounts = allAccountOptions(ds);
+
+    // Currency options
+    const currencyKeys = Object.keys(config.currencySymbols);
+    const currencyOptionsHtml = currencyKeys
+        .map(c => `<option value="${escapeHtmlAttr(c)}" ${c === config.defaultCurrency ? "selected" : ""}>${escapeHtmlAttr(c)}</option>`)
+        .join("");
 
     const content = `<div class="b3-dialog__content ledger-dialog">
   <div class="ledger-form-row">
@@ -395,7 +428,21 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     <input id="ledger-quick-line" class="b3-text-field fn__block" type="text"
       placeholder="${i18n.quickEntryPlaceholder}">
   </div>
-  <div id="ledger-quick-preview" class="ledger-preview" style="display:none;"></div>
+  <div id="ledger-quick-preview" class="ledger-preview" style="display:none;">
+    <div class="ledger-form-row">
+      <label class="ledger-label">${i18n.date}</label>
+      <input id="ledger-qe-date" class="b3-text-field fn__block" type="date" value="${todayStr()}">
+    </div>
+    <div class="ledger-form-row">
+      <label class="ledger-label">${i18n.payee}</label>
+      <input id="ledger-qe-payee" class="b3-text-field fn__block" type="text">
+    </div>
+    <div id="ledger-qe-postings"></div>
+    <div class="ledger-form-row">
+      <label class="ledger-label">${i18n.tags}</label>
+      <input id="ledger-qe-tags" class="b3-text-field fn__block" type="text" placeholder="${i18n.tagsPlaceholder}">
+    </div>
+  </div>
 </div>
 <div class="b3-dialog__action">
   <button class="b3-button b3-button--cancel" id="ledger-cancel">${i18n.cancel}</button>
@@ -412,16 +459,85 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     const el = dialog.element;
     const lineInput = el.querySelector<HTMLInputElement>("#ledger-quick-line");
     const preview = el.querySelector<HTMLElement>("#ledger-quick-preview");
+    const postingsDiv = el.querySelector<HTMLElement>("#ledger-qe-postings");
+
+    // Attach autocomplete to the editable payee field in the preview
+    const qePayeeInput = el.querySelector<HTMLInputElement>("#ledger-qe-payee");
+    if (qePayeeInput) {
+        attachPayeeAutocomplete({
+            input: qePayeeInput,
+            dataService: ds,
+            i18n,
+            onSelect: (selectedPayee: string) => {
+                const stats = ds.getPayeeStats(selectedPayee);
+                if (!stats || !postingsDiv) return;
+                // Update the first posting account if the inferred account matches
+                if (stats.lastAccount) {
+                    const firstAcctSelect = postingsDiv.querySelector<HTMLSelectElement>(".qe-posting-account");
+                    if (firstAcctSelect) {
+                        const opt = [...firstAcctSelect.options].find(o => o.value === stats.lastAccount);
+                        if (opt) firstAcctSelect.value = stats.lastAccount;
+                    }
+                }
+                // Update the first posting amount with the historical average
+                if (stats.count > 0) {
+                    const firstAmtInput = postingsDiv.querySelector<HTMLInputElement>(".qe-posting-amount");
+                    if (firstAmtInput) {
+                        const currentVal = parseFloat(firstAmtInput.value);
+                        const avg = Math.round(stats.totalAmount / stats.count);
+                        if (avg > 0 && (!firstAmtInput.value || currentVal === 0)) {
+                            firstAmtInput.value = String(avg);
+                            // Also update the counter-posting
+                            const allAmtInputs = postingsDiv.querySelectorAll<HTMLInputElement>(".qe-posting-amount");
+                            if (allAmtInputs.length === 2) {
+                                allAmtInputs[1].value = String(-avg);
+                            }
+                        }
+                    }
+                }
+            },
+        });
+    }
+
+    function buildPostingRow(p: IPosting): HTMLDivElement {
+        const row = document.createElement("div");
+        row.className = "ledger-qe-posting-row";
+        const icon = p.amount >= 0 ? "📤" : "📥";
+        row.innerHTML = `
+          <label class="ledger-label">${icon}</label>
+          <select class="b3-select qe-posting-account" style="flex:1">${expenseAccounts}</select>
+          <input class="b3-text-field qe-posting-amount" type="number" step="0.01" value="${p.amount}" style="width:100px">
+          <select class="b3-select qe-posting-currency" style="width:70px">${currencyOptionsHtml}</select>`;
+        // Set the selected account by value (avoid CSS selector issues with special chars like colons)
+        const select = row.querySelector<HTMLSelectElement>(".qe-posting-account");
+        if (select) {
+            select.value = p.account;
+        }
+        // Set the selected currency
+        const currSelect = row.querySelector<HTMLSelectElement>(".qe-posting-currency");
+        if (currSelect) {
+            currSelect.value = p.currency;
+        }
+        return row;
+    }
 
     lineInput?.addEventListener("input", () => {
-        if (!preview) return;
+        if (!preview || !postingsDiv) return;
         const partial = parseQuickLine(lineInput.value, ds);
         if (partial && partial.postings && partial.postings.length > 0) {
-            const sym = (c: string) => ds.getCurrencySymbol(c);
-            const lines = partial.postings.map(p =>
-                `${p.amount >= 0 ? "📤" : "📥"} ${p.account}  ${sym(p.currency)}${p.amount.toFixed(2)}`
-            );
-            preview.innerHTML = `<pre class="ledger-preview-text">💰 ${partial.date} ${partial.payee}\n${lines.join("\n")}</pre>`;
+            const dateInput = el.querySelector<HTMLInputElement>("#ledger-qe-date");
+            const payeeInput = el.querySelector<HTMLInputElement>("#ledger-qe-payee");
+            const tagsInput = el.querySelector<HTMLInputElement>("#ledger-qe-tags");
+
+            if (dateInput) dateInput.value = partial.date || todayStr();
+            if (payeeInput) payeeInput.value = partial.payee || "";
+            if (tagsInput) tagsInput.value = (partial.tags || []).join(", ");
+
+            postingsDiv.innerHTML = "";
+            partial.postings.forEach(p => {
+                postingsDiv.appendChild(buildPostingRow(p));
+            });
+
             preview.style.display = "";
         } else {
             preview.style.display = "none";
@@ -431,8 +547,31 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     el.querySelector("#ledger-cancel")?.addEventListener("click", () => dialog.destroy());
 
     el.querySelector("#ledger-submit")?.addEventListener("click", async () => {
-        const partial = parseQuickLine(lineInput?.value || "", ds);
-        if (!partial || !partial.postings) return;
+        if (!postingsDiv) return;
+
+        // Read from editable fields
+        const dateVal = (el.querySelector<HTMLInputElement>("#ledger-qe-date"))?.value || todayStr();
+        const payeeVal = (el.querySelector<HTMLInputElement>("#ledger-qe-payee"))?.value.trim() || "";
+        const tagsVal = (el.querySelector<HTMLInputElement>("#ledger-qe-tags"))?.value.trim() || "";
+        const tags = tagsVal ? tagsVal.split(",").map(t => t.trim()).filter(Boolean) : [];
+
+        if (!payeeVal) {
+            const payeeInput = el.querySelector<HTMLInputElement>("#ledger-qe-payee");
+            payeeInput?.focus();
+            payeeInput?.classList.add("ledger-error");
+            return;
+        }
+
+        // Collect postings from editable fields
+        const postingRows = [...postingsDiv.querySelectorAll<HTMLElement>(".ledger-qe-posting-row")];
+        if (postingRows.length === 0) return;
+
+        const postings: IPosting[] = postingRows.map(row => {
+            const account = (row.querySelector<HTMLSelectElement>(".qe-posting-account"))?.value || "";
+            const amount = parseFloat((row.querySelector<HTMLInputElement>(".qe-posting-amount"))?.value || "0");
+            const currency = (row.querySelector<HTMLSelectElement>(".qe-posting-currency"))?.value || config.defaultCurrency;
+            return {account, amount, currency};
+        });
 
         try {
             const protoInst = protyle.protyle;
@@ -444,12 +583,12 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
 
             const tx: Omit<ITransaction, "blockId"> = {
                 uuid: "",
-                date: partial.date || ds.today(),
-                status: partial.status || "cleared",
-                payee: partial.payee || "",
-                narration: partial.narration || "",
-                postings: partial.postings,
-                tags: partial.tags || [],
+                date: dateVal,
+                status: "cleared",
+                payee: payeeVal,
+                narration: "",
+                postings,
+                tags,
             };
             const blockId = await ds.insertTransaction(tx, parentID, previousID);
             dialog.destroy();
@@ -460,7 +599,7 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     });
 
     el.addEventListener("keydown", (e: KeyboardEvent) => {
-        if (e.key === "Enter") {
+        if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             (el.querySelector<HTMLButtonElement>("#ledger-submit"))?.click();
         }

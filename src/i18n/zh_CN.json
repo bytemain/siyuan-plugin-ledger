@@ -112,5 +112,6 @@
   "txUpdateFailed": "更新失败",
   "postingsRequired": "至少需要两条过账",
   "importFailed": "导入失败",
-  "openDocFirst": "请先打开一个文档"
+  "openDocFirst": "请先打开一个文档",
+  "noSuggestions": "无建议"
 }
