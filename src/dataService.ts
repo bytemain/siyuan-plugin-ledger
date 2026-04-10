@@ -41,6 +41,68 @@ export function parseIAL(ial: string): Record<string, string> {
 
 // ─── Conversion helpers ───────────────────────────────────────────────────────
 
+/** Row shape returned by `SELECT block_id, name, value FROM attributes …` */
+export interface IAttributeRow {
+    block_id: string;
+    name: string;
+    value: string;
+}
+
+/**
+ * Convert an attribute name→value map (already structured) into an ITransaction.
+ * Values come from the `attributes` table and are NOT IAL-escaped.
+ */
+export function attributeMapToTransaction(
+    blockId: string,
+    attrs: Record<string, string>,
+): ITransaction | null {
+    try {
+        if (attrs[ATTR_TYPE] !== TRANSACTION_TYPE_VALUE) return null;
+
+        const postings: IPosting[] = JSON.parse(attrs[ATTR_POSTINGS] || "[]");
+        const tagsRaw = attrs[ATTR_TAGS] || "";
+
+        return {
+            blockId,
+            uuid: attrs[ATTR_UUID] || blockId,
+            date: attrs[ATTR_DATE] || "",
+            status: (attrs[ATTR_STATUS] as ITransaction["status"]) || "uncleared",
+            payee: attrs[ATTR_PAYEE] || "",
+            narration: attrs[ATTR_NARRATION] || "",
+            postings,
+            tags: tagsRaw ? tagsRaw.split(",").map(t => t.trim()).filter(Boolean) : [],
+        };
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Group flat attribute rows by block_id and convert each group into an ITransaction.
+ */
+export function attributeRowsToTransactions(rows: IAttributeRow[]): ITransaction[] {
+    const groups = new Map<string, Record<string, string>>();
+    for (const row of rows) {
+        let map = groups.get(row.block_id);
+        if (!map) {
+            map = {};
+            groups.set(row.block_id, map);
+        }
+        map[row.name] = row.value;
+    }
+
+    const txns: ITransaction[] = [];
+    for (const [blockId, attrs] of groups) {
+        const tx = attributeMapToTransaction(blockId, attrs);
+        if (tx) txns.push(tx);
+    }
+    return txns;
+}
+
+/**
+ * @deprecated Use {@link attributeMapToTransaction} instead.
+ * Kept for backward compatibility — converts a blocks-table row (with IAL string) to ITransaction.
+ */
 export function blockRowToTransaction(row: Record<string, string>): ITransaction | null {
     try {
         const ial = parseIAL(row.ial || "");
@@ -295,19 +357,18 @@ export class DataService {
             fetchPost(
                 "/api/query/sql",
                 {
-                    // ATTR_TYPE and TRANSACTION_TYPE_VALUE are compile-time constants, safe to interpolate
-                    stmt: `SELECT id, ial FROM blocks WHERE ial LIKE '%${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"%' ORDER BY id DESC`,
+                    // Use the `attributes` table which stores structured key-value pairs
+                    // (no IAL escaping issues). ATTR_TYPE and TRANSACTION_TYPE_VALUE are
+                    // compile-time constants, safe to interpolate.
+                    stmt: `SELECT block_id, name, value FROM attributes WHERE block_id IN (SELECT block_id FROM attributes WHERE name = '${ATTR_TYPE}' AND value = '${TRANSACTION_TYPE_VALUE}') ORDER BY block_id DESC`,
                 },
                 (res) => {
                     if (res.code !== 0) {
                         reject(new Error(res.msg));
                         return;
                     }
-                    const rows: Record<string, string>[] = res.data || [];
-                    const txns = rows
-                        .map(r => blockRowToTransaction(r))
-                        .filter((t): t is ITransaction => t !== null);
-                    resolve(txns);
+                    const rows: IAttributeRow[] = res.data || [];
+                    resolve(attributeRowsToTransactions(rows));
                 },
             );
         });
@@ -323,15 +384,15 @@ export class DataService {
             fetchPost(
                 "/api/query/sql",
                 {
-                    stmt: `SELECT id, ial FROM blocks WHERE ial LIKE '%${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"%' AND ial LIKE '%${ATTR_DATE}="${safeYearMonth}%' ESCAPE '\\' ORDER BY id DESC`,
+                    stmt: `SELECT block_id, name, value FROM attributes WHERE block_id IN (SELECT a1.block_id FROM attributes a1 JOIN attributes a2 ON a1.block_id = a2.block_id WHERE a1.name = '${ATTR_TYPE}' AND a1.value = '${TRANSACTION_TYPE_VALUE}' AND a2.name = '${ATTR_DATE}' AND a2.value LIKE '${safeYearMonth}%' ESCAPE '\\') ORDER BY block_id DESC`,
                 },
                 (res) => {
                     if (res.code !== 0) {
                         reject(new Error(res.msg));
                         return;
                     }
-                    const rows: Record<string, string>[] = res.data || [];
-                    resolve(rows.map(r => blockRowToTransaction(r)).filter((t): t is ITransaction => t !== null));
+                    const rows: IAttributeRow[] = res.data || [];
+                    resolve(attributeRowsToTransactions(rows));
                 },
             );
         });
@@ -343,15 +404,15 @@ export class DataService {
             fetchPost(
                 "/api/query/sql",
                 {
-                    stmt: `SELECT id, ial FROM blocks WHERE ial LIKE '%${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"%' AND ial LIKE '%${ATTR_PAYEE}="${safePayee}%' ESCAPE '\\' ORDER BY id DESC`,
+                    stmt: `SELECT block_id, name, value FROM attributes WHERE block_id IN (SELECT a1.block_id FROM attributes a1 JOIN attributes a2 ON a1.block_id = a2.block_id WHERE a1.name = '${ATTR_TYPE}' AND a1.value = '${TRANSACTION_TYPE_VALUE}' AND a2.name = '${ATTR_PAYEE}' AND a2.value LIKE '${safePayee}%' ESCAPE '\\') ORDER BY block_id DESC`,
                 },
                 (res) => {
                     if (res.code !== 0) {
                         reject(new Error(res.msg));
                         return;
                     }
-                    const rows: Record<string, string>[] = res.data || [];
-                    resolve(rows.map(r => blockRowToTransaction(r)).filter((t): t is ITransaction => t !== null));
+                    const rows: IAttributeRow[] = res.data || [];
+                    resolve(attributeRowsToTransactions(rows));
                 },
             );
         });

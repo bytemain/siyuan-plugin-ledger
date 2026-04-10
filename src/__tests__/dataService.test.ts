@@ -1,5 +1,6 @@
 import {describe, it, expect} from "vitest";
-import {parseIAL, blockRowToTransaction, generateUUID, buildBlockContent, DataService} from "../dataService";
+import {parseIAL, blockRowToTransaction, attributeMapToTransaction, attributeRowsToTransactions, generateUUID, buildBlockContent, DataService} from "../dataService";
+import type {IAttributeRow} from "../dataService";
 import {
     ATTR_TYPE,
     ATTR_DATE,
@@ -149,6 +150,123 @@ describe("blockRowToTransaction", () => {
         });
         const tx = blockRowToTransaction({id: "block-1", ial});
         expect(tx).toBeNull();
+    });
+});
+
+// ─── attributeMapToTransaction ────────────────────────────────────────────────
+
+const SAMPLE_ATTRS: Record<string, string> = {
+    [ATTR_TYPE]: TRANSACTION_TYPE_VALUE,
+    [ATTR_DATE]: "2024-03-15",
+    [ATTR_STATUS]: "cleared",
+    [ATTR_PAYEE]: "海底捞",
+    [ATTR_NARRATION]: "部门聚餐",
+    [ATTR_POSTINGS]: SAMPLE_POSTINGS,
+    [ATTR_TAGS]: "聚餐,报销",
+    [ATTR_UUID]: "test-uuid-1",
+};
+
+describe("attributeMapToTransaction", () => {
+    it("converts a valid attribute map to ITransaction", () => {
+        const tx = attributeMapToTransaction("block-1", SAMPLE_ATTRS);
+        expect(tx).not.toBeNull();
+        expect(tx?.blockId).toBe("block-1");
+        expect(tx?.date).toBe("2024-03-15");
+        expect(tx?.status).toBe("cleared");
+        expect(tx?.payee).toBe("海底捞");
+        expect(tx?.narration).toBe("部门聚餐");
+        expect(tx?.postings).toHaveLength(2);
+        expect(tx?.postings[0].amount).toBe(258);
+        expect(tx?.tags).toContain("聚餐");
+        expect(tx?.tags).toContain("报销");
+    });
+
+    it("returns null when custom-ledger-type is missing", () => {
+        const attrs = {...SAMPLE_ATTRS};
+        delete attrs[ATTR_TYPE];
+        expect(attributeMapToTransaction("block-1", attrs)).toBeNull();
+    });
+
+    it("returns null when custom-ledger-type is not 'transaction'", () => {
+        const attrs = {...SAMPLE_ATTRS, [ATTR_TYPE]: "balance"};
+        expect(attributeMapToTransaction("block-1", attrs)).toBeNull();
+    });
+
+    it("returns null for empty attribute map", () => {
+        expect(attributeMapToTransaction("block-1", {})).toBeNull();
+    });
+
+    it("falls back to blockId when uuid is missing", () => {
+        const attrs = {...SAMPLE_ATTRS};
+        delete attrs[ATTR_UUID];
+        const tx = attributeMapToTransaction("fallback-id", attrs);
+        expect(tx?.uuid).toBe("fallback-id");
+    });
+
+    it("handles empty tags gracefully", () => {
+        const attrs = {...SAMPLE_ATTRS, [ATTR_TAGS]: ""};
+        const tx = attributeMapToTransaction("block-1", attrs);
+        expect(tx?.tags).toEqual([]);
+    });
+
+    it("handles invalid JSON in postings gracefully (returns null)", () => {
+        const attrs = {...SAMPLE_ATTRS, [ATTR_POSTINGS]: "NOT_JSON"};
+        expect(attributeMapToTransaction("block-1", attrs)).toBeNull();
+    });
+
+    it("correctly parses postings JSON without IAL escaping issues", () => {
+        const postingsJson = JSON.stringify([
+            {account: "Expenses:Shopping:Digital", amount: 196.9, currency: "CNY"},
+            {account: "Liabilities:CreditCard:CMB", amount: -196.9, currency: "CNY"},
+        ]);
+        const attrs = {...SAMPLE_ATTRS, [ATTR_POSTINGS]: postingsJson};
+        const tx = attributeMapToTransaction("block-1", attrs);
+        expect(tx).not.toBeNull();
+        expect(tx?.postings[0].account).toBe("Expenses:Shopping:Digital");
+        expect(tx?.postings[0].amount).toBe(196.9);
+        expect(tx?.postings[1].account).toBe("Liabilities:CreditCard:CMB");
+        expect(tx?.postings[1].amount).toBe(-196.9);
+    });
+});
+
+// ─── attributeRowsToTransactions ──────────────────────────────────────────────
+
+describe("attributeRowsToTransactions", () => {
+    it("groups rows by block_id and converts to transactions", () => {
+        const rows: IAttributeRow[] = [
+            {block_id: "b1", name: ATTR_TYPE, value: TRANSACTION_TYPE_VALUE},
+            {block_id: "b1", name: ATTR_DATE, value: "2024-03-15"},
+            {block_id: "b1", name: ATTR_PAYEE, value: "海底捞"},
+            {block_id: "b1", name: ATTR_POSTINGS, value: SAMPLE_POSTINGS},
+            {block_id: "b1", name: ATTR_UUID, value: "uuid-1"},
+            {block_id: "b2", name: ATTR_TYPE, value: TRANSACTION_TYPE_VALUE},
+            {block_id: "b2", name: ATTR_DATE, value: "2024-03-16"},
+            {block_id: "b2", name: ATTR_PAYEE, value: "滴滴出行"},
+            {block_id: "b2", name: ATTR_POSTINGS, value: JSON.stringify([
+                {account: "Expenses:Transport", amount: 32, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -32, currency: "CNY"},
+            ])},
+            {block_id: "b2", name: ATTR_UUID, value: "uuid-2"},
+        ];
+        const txns = attributeRowsToTransactions(rows);
+        expect(txns).toHaveLength(2);
+        expect(txns[0].blockId).toBe("b1");
+        expect(txns[0].payee).toBe("海底捞");
+        expect(txns[1].blockId).toBe("b2");
+        expect(txns[1].payee).toBe("滴滴出行");
+    });
+
+    it("skips blocks without transaction type", () => {
+        const rows: IAttributeRow[] = [
+            {block_id: "b1", name: ATTR_TYPE, value: "balance"},
+            {block_id: "b1", name: ATTR_DATE, value: "2024-03-15"},
+        ];
+        const txns = attributeRowsToTransactions(rows);
+        expect(txns).toHaveLength(0);
+    });
+
+    it("returns empty array for empty input", () => {
+        expect(attributeRowsToTransactions([])).toEqual([]);
     });
 });
 
