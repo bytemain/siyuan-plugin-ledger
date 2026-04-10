@@ -237,7 +237,8 @@ export default class LedgerPlugin extends Plugin {
                 html: `<div class="b3-list-item__first"><span class="b3-list-item__text">\ud83d\udcb0 ${this.i18n.quickExpense}</span></div>`,
                 id: "ledger-expense",
                 callback: (protyle: Protyle) => {
-                    this.showQuickExpense(protyle);
+                    const slashBlockId = this.getSlashBlockId(protyle);
+                    this.showQuickExpense(protyle, slashBlockId);
                 },
             },
             {
@@ -245,7 +246,8 @@ export default class LedgerPlugin extends Plugin {
                 html: `<div class="b3-list-item__first"><span class="b3-list-item__text">\ud83d\udcc8 ${this.i18n.quickIncome}</span></div>`,
                 id: "ledger-income",
                 callback: (protyle: Protyle) => {
-                    this.showQuickIncome(protyle);
+                    const slashBlockId = this.getSlashBlockId(protyle);
+                    this.showQuickIncome(protyle, slashBlockId);
                 },
             },
             {
@@ -253,7 +255,8 @@ export default class LedgerPlugin extends Plugin {
                 html: `<div class="b3-list-item__first"><span class="b3-list-item__text">\ud83d\udd04 ${this.i18n.quickTransfer}</span></div>`,
                 id: "ledger-transfer",
                 callback: (protyle: Protyle) => {
-                    this.showQuickTransfer(protyle);
+                    const slashBlockId = this.getSlashBlockId(protyle);
+                    this.showQuickTransfer(protyle, slashBlockId);
                 },
             },
             {
@@ -261,7 +264,8 @@ export default class LedgerPlugin extends Plugin {
                 html: `<div class="b3-list-item__first"><span class="b3-list-item__text">\u26a1 ${this.i18n.quickEntry}</span></div>`,
                 id: "ledger-quickadd",
                 callback: (protyle: Protyle) => {
-                    this.showQuickEntry(protyle);
+                    const slashBlockId = this.getSlashBlockId(protyle);
+                    this.showQuickEntry(protyle, slashBlockId);
                 },
             },
         ];
@@ -722,7 +726,33 @@ export default class LedgerPlugin extends Plugin {
         }
     }
 
-    private showQuickExpense(protyle?: Protyle) {
+    /**
+     * Find the block ID of the currently focused block in the protyle.
+     * Used to identify the block where a slash command was typed.
+     */
+    private getSlashBlockId(protyle: Protyle): string | undefined {
+        const wysiwyg = protyle?.protyle?.wysiwyg?.element;
+        if (!wysiwyg) return undefined;
+        const sel = document.getSelection();
+        if (!sel || sel.rangeCount === 0) return undefined;
+        let node: Node | null = sel.getRangeAt(0).startContainer;
+        while (node && node !== wysiwyg) {
+            if (node instanceof HTMLElement && node.dataset?.nodeId) {
+                return node.dataset.nodeId;
+            }
+            node = node.parentNode;
+        }
+        return undefined;
+    }
+
+    /**
+     * Remove the empty block left behind by a slash command.
+     */
+    private removeSlashBlock(blockId: string): void {
+        fetchPost("/api/block/deleteBlock", {id: blockId});
+    }
+
+    private showQuickExpense(protyle?: Protyle, slashBlockId?: string) {
         const p = protyle || this.getActiveProtyle();
         if (!p) {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
@@ -736,11 +766,12 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
     }
 
-    private showQuickIncome(protyle?: Protyle) {
+    private showQuickIncome(protyle?: Protyle, slashBlockId?: string) {
         const p = protyle || this.getActiveProtyle();
         if (!p) {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
@@ -754,11 +785,12 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
     }
 
-    private showQuickTransfer(protyle?: Protyle) {
+    private showQuickTransfer(protyle?: Protyle, slashBlockId?: string) {
         const p = protyle || this.getActiveProtyle();
         if (!p) {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
@@ -772,11 +804,12 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
     }
 
-    private showQuickEntry(protyle?: Protyle) {
+    private showQuickEntry(protyle?: Protyle, slashBlockId?: string) {
         const p = protyle || this.getActiveProtyle();
         if (!p) {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
@@ -789,6 +822,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
     }
