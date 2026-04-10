@@ -30,6 +30,40 @@
   background: rgba(52, 152, 219, 0.05);
 }
 
+// ── Inline edit button (upper-right corner) ───────────────────────────────────
+
+.ledger-tx-has-edit {
+  position: relative;
+}
+
+.ledger-edit-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 24px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  z-index: 1;
+}
+
+[custom-ledger-type="transaction"]:hover .ledger-edit-btn {
+  opacity: 0.6;
+}
+
+[custom-ledger-type="transaction"] .ledger-edit-btn:hover {
+  opacity: 1;
+  background: var(--b3-list-hover, rgba(0, 0, 0, 0.06));
+}
+
 // ── Dialog / Form styles ──────────────────────────────────────────────────────
 
 .ledger-dialog {

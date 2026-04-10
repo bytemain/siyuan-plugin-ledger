@@ -555,6 +555,14 @@ export default class LedgerPlugin extends Plugin {
     // ─── EventBus ────────────────────────────────────────────────────────────
 
     private registerEventBusListeners() {
+        // Inject edit buttons when protyle content loads
+        this.eventBus.on("loaded-protyle-static", ({detail}: any) => {
+            this.injectEditButtons(detail?.protyle?.wysiwyg?.element);
+        });
+        this.eventBus.on("loaded-protyle-dynamic", ({detail}: any) => {
+            this.injectEditButtons(detail?.protyle?.wysiwyg?.element);
+        });
+
         // Right-click menu on transaction blocks
         this.eventBus.on("open-menu-content", ({detail}: any) => {
             const blockEl = detail?.element as HTMLElement | undefined;
@@ -589,6 +597,34 @@ export default class LedgerPlugin extends Plugin {
                 },
             });
         });
+    }
+
+    /**
+     * Scan a protyle wysiwyg element for transaction blocks and inject an
+     * edit button in the upper-right corner of each one.
+     */
+    private injectEditButtons(container: HTMLElement | undefined) {
+        if (!container) return;
+        const blocks = container.querySelectorAll<HTMLElement>(
+            `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
+        );
+        for (const block of blocks) {
+            // Skip if we already injected a button
+            if (block.querySelector(".ledger-edit-btn")) continue;
+            block.classList.add("ledger-tx-has-edit");
+            const btn = document.createElement("button");
+            btn.className = "ledger-edit-btn";
+            btn.title = this.i18n.editTransaction;
+            btn.textContent = "✏️";
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const blockId = block.dataset.nodeId
+                    || block.closest("[data-node-id]")?.getAttribute("data-node-id");
+                if (blockId) this.openEditTransactionById(blockId);
+            });
+            block.appendChild(btn);
+        }
     }
 
     private openEditTransactionById(blockId: string) {
