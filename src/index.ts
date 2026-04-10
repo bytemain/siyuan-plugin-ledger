@@ -749,7 +749,11 @@ export default class LedgerPlugin extends Plugin {
      * Remove the empty block left behind by a slash command.
      */
     private removeSlashBlock(blockId: string): void {
-        fetchPost("/api/block/deleteBlock", {id: blockId});
+        fetchPost("/api/block/deleteBlock", {id: blockId}, (res) => {
+            if (res.code !== 0) {
+                console.warn("[SiYuan Ledger] failed to remove slash block:", res.msg);
+            }
+        });
     }
 
     private showQuickExpense(protyle?: Protyle, slashBlockId?: string) {
