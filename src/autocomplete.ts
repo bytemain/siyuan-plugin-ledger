@@ -231,12 +231,13 @@ export function attachTagAutocomplete(opts: ITagAutoCompleteOptions): () => void
             return (parts[parts.length - 1] || "").trim();
         },
         fetchItems: (query: string) => {
-            // Exclude tags already entered
-            const existingTags = new Set(
-                input.value.split(",").map(t => t.trim().toLowerCase()).filter(Boolean)
+            // Exclude already-completed tags (all but the last partial one)
+            const allParts = input.value.split(",").map(t => t.trim().toLowerCase());
+            const completedTags = new Set(
+                allParts.slice(0, -1).filter(Boolean)
             );
             const results = ds.searchTags(query, 8)
-                .filter(t => !existingTags.has(t.toLowerCase()));
+                .filter(t => !completedTags.has(t.toLowerCase()));
             const history = ds.getCache().tagHistory ?? {};
             return results.map(t => ({
                 text: t,
@@ -245,10 +246,11 @@ export function attachTagAutocomplete(opts: ITagAutoCompleteOptions): () => void
         },
         applyValue: (inp: HTMLInputElement, value: string) => {
             // Replace the last partial tag with the selected value
-            const parts = inp.value.split(",").map(t => t.trim()).filter(Boolean);
-            parts.pop(); // remove the partial tag being typed
-            parts.push(value);
-            inp.value = parts.join(", ") + ", ";
+            const rawParts = inp.value.split(",");
+            // Keep all completed parts, replace only the last (partial) one
+            const completed = rawParts.slice(0, -1).map(t => t.trim()).filter(Boolean);
+            completed.push(value);
+            inp.value = completed.join(", ") + ", ";
         },
         onSelect,
     });
