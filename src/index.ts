@@ -54,6 +54,8 @@ export default class LedgerPlugin extends Plugin {
 
     /** MutationObserver for injecting edit buttons into transaction blocks */
     private txBlockObserver: MutationObserver | null = null;
+    /** Debounce timer for MutationObserver callback */
+    private txObserverDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     /** Bound handler refs for cleanup */
     private boundDblClickHandler: ((e: MouseEvent) => void) | null = null;
 
@@ -136,6 +138,10 @@ export default class LedgerPlugin extends Plugin {
     onunload() {
         this.txBlockObserver?.disconnect();
         this.txBlockObserver = null;
+        if (this.txObserverDebounceTimer) {
+            clearTimeout(this.txObserverDebounceTimer);
+            this.txObserverDebounceTimer = null;
+        }
         if (this.boundDblClickHandler) {
             document.removeEventListener("dblclick", this.boundDblClickHandler);
             this.boundDblClickHandler = null;
@@ -616,10 +622,9 @@ export default class LedgerPlugin extends Plugin {
      * loaded-protyle-static/dynamic EventBus events.
      */
     private setupTransactionBlockObserver() {
-        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
         this.txBlockObserver = new MutationObserver(() => {
-            if (debounceTimer) clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => this.injectEditButtonsGlobal(), 200);
+            if (this.txObserverDebounceTimer) clearTimeout(this.txObserverDebounceTimer);
+            this.txObserverDebounceTimer = setTimeout(() => this.injectEditButtonsGlobal(), 200);
         });
         this.txBlockObserver.observe(document.body, {
             childList: true,
