@@ -59,6 +59,7 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
 
     const isExpense = mode === "expense";
     const isIncome = mode === "income";
+    const isTransfer = mode === "transfer";
 
     const titleMap = {
         expense: i18n.quickExpense,
@@ -110,8 +111,8 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
     </select>
   </div>
   <div class="ledger-form-row">
-    <label class="ledger-label">${i18n.payee}</label>
-    <input id="ledger-payee" class="b3-text-field fn__block" type="text" placeholder="${i18n.payeePlaceholder}" autocomplete="off">
+    <label class="ledger-label">${isTransfer ? i18n.transferDescription : i18n.payee}</label>
+    <input id="ledger-payee" class="b3-text-field fn__block" type="text" placeholder="${isTransfer ? i18n.transferDescPlaceholder : i18n.payeePlaceholder}" autocomplete="off">
   </div>
   <div class="ledger-form-row">
     <label class="ledger-label">${i18n.amount}</label>
@@ -271,12 +272,14 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
         const tagsVal = (el.querySelector<HTMLInputElement>("#ledger-tags"))?.value.trim() || "";
         const tags = tagsVal ? tagsVal.split(",").map(t => t.trim()).filter(Boolean) : [];
 
-        if (!payeeVal) {
+        if (!payeeVal && !isTransfer) {
             const payeeInput = el.querySelector<HTMLInputElement>("#ledger-payee");
             payeeInput?.focus();
             payeeInput?.classList.add("ledger-error");
             return;
         }
+        // For transfers, use a default payee if none provided
+        const finalPayee = payeeVal || (isTransfer ? (i18n.transferDefaultPayee || "Transfer") : "");
         if (isNaN(amountVal) || amountVal <= 0) {
             const amountInput = el.querySelector<HTMLInputElement>("#ledger-amount");
             amountInput?.focus();
@@ -331,7 +334,7 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
             uuid: "",
             date: dateVal,
             status: statusVal,
-            payee: payeeVal,
+            payee: finalPayee,
             narration: narrationVal,
             postings,
             tags,
@@ -364,8 +367,11 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
         }
     });
 
-    // Focus payee field
-    setTimeout(() => (el.querySelector<HTMLInputElement>("#ledger-payee"))?.focus(), 100);
+    // Focus: payee for expense/income, amount for transfer (payee is optional)
+    setTimeout(() => {
+        const focusField = isTransfer ? "#ledger-amount" : "#ledger-payee";
+        (el.querySelector<HTMLInputElement>(focusField))?.focus();
+    }, 100);
 }
 
 // ─── Simple one-line entry ────────────────────────────────────────────────────
