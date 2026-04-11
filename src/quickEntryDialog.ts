@@ -5,7 +5,7 @@ import {Dialog, Protyle} from "siyuan";
 import {DataService} from "./dataService";
 import {IPosting, ITransaction} from "./types";
 import {ACCOUNT_ALIASES, CREDIT_CARD_PAYMENT_PATTERNS, REIMBURSEMENT_PATTERNS} from "./defaultAccounts";
-import {attachPayeeAutocomplete} from "./autocomplete";
+import {attachPayeeAutocomplete, attachNarrationAutocomplete, attachTagAutocomplete} from "./autocomplete";
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
@@ -137,11 +137,11 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
   </div>
   <div class="ledger-form-row">
     <label class="ledger-label">${i18n.narration}</label>
-    <input id="ledger-narration" class="b3-text-field fn__block" type="text" placeholder="${i18n.narrationPlaceholder}">
+    <input id="ledger-narration" class="b3-text-field fn__block" type="text" placeholder="${i18n.narrationPlaceholder}" autocomplete="off">
   </div>
   <div class="ledger-form-row">
     <label class="ledger-label">${i18n.tags}</label>
-    <input id="ledger-tags" class="b3-text-field fn__block" type="text" placeholder="${i18n.tagsPlaceholder}">
+    <input id="ledger-tags" class="b3-text-field fn__block" type="text" placeholder="${i18n.tagsPlaceholder}" autocomplete="off">
   </div>
   <div class="ledger-form-row">
     <label></label>
@@ -195,6 +195,18 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
                 }
             },
         });
+    }
+
+    // ── Attach narration autocomplete ───────────────────────────────────
+    const narrationInput = el.querySelector<HTMLInputElement>("#ledger-narration");
+    if (narrationInput) {
+        attachNarrationAutocomplete({input: narrationInput, dataService: ds});
+    }
+
+    // ── Attach tag autocomplete ─────────────────────────────────────────
+    const tagsInput = el.querySelector<HTMLInputElement>("#ledger-tags");
+    if (tagsInput) {
+        attachTagAutocomplete({input: tagsInput, dataService: ds});
     }
 
     // ── Set defaults ────────────────────────────────────────────────────
@@ -607,7 +619,7 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
     <div id="ledger-qe-postings"></div>
     <div class="ledger-form-row">
       <label class="ledger-label">${i18n.tags}</label>
-      <input id="ledger-qe-tags" class="b3-text-field fn__block" type="text" placeholder="${i18n.tagsPlaceholder}">
+      <input id="ledger-qe-tags" class="b3-text-field fn__block" type="text" placeholder="${i18n.tagsPlaceholder}" autocomplete="off">
     </div>
   </div>
 </div>
@@ -664,6 +676,12 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
                 }
             },
         });
+    }
+
+    // Attach tag autocomplete to the simple entry tags field
+    const qeTagsInput = el.querySelector<HTMLInputElement>("#ledger-qe-tags");
+    if (qeTagsInput) {
+        attachTagAutocomplete({input: qeTagsInput, dataService: ds});
     }
 
     function buildPostingRow(p: IPosting): HTMLDivElement {

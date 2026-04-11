@@ -92,6 +92,10 @@ export interface ILedgerCache {
     recentAccounts: string[];
     /** Per-payee statistics built from transaction history */
     payeeHistory: Record<string, IPayeeStats>;
+    /** Narration → usage count (for autocomplete) */
+    narrationHistory: Record<string, number>;
+    /** Tag → usage count (for autocomplete) */
+    tagHistory: Record<string, number>;
 }
 
 // ─── Storage keys ────────────────────────────────────────────────────────────

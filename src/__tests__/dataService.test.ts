@@ -570,3 +570,204 @@ describe("getPayeeStats", () => {
         expect(avg).toBe(150);
     });
 });
+
+// ─── buildNarrationHistory / searchNarrations ─────────────────────────────────
+
+describe("buildNarrationHistory", () => {
+    const txns: ITransaction[] = [
+        {
+            blockId: "b1", uuid: "u1", date: "2024-03-10", status: "cleared",
+            payee: "海底捞", narration: "部门聚餐", postings: [
+                {account: "Expenses:Food:Dining", amount: 258, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -258, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b2", uuid: "u2", date: "2024-03-15", status: "cleared",
+            payee: "星巴克", narration: "下午茶", postings: [
+                {account: "Expenses:Food:Dining", amount: 42, currency: "CNY"},
+                {account: "Assets:WeChatPay", amount: -42, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b3", uuid: "u3", date: "2024-03-16", status: "cleared",
+            payee: "海底捞", narration: "部门聚餐", postings: [
+                {account: "Expenses:Food:Dining", amount: 300, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -300, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b4", uuid: "u4", date: "2024-03-17", status: "cleared",
+            payee: "滴滴出行", postings: [
+                {account: "Expenses:Transport:Taxi", amount: 32, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -32, currency: "CNY"},
+            ],
+        },
+    ];
+
+    const ds = new DataService();
+
+    it("builds narration history with correct counts", () => {
+        const history = ds.buildNarrationHistory(txns);
+        expect(history["部门聚餐"]).toBe(2);
+        expect(history["下午茶"]).toBe(1);
+    });
+
+    it("skips transactions without narration", () => {
+        const history = ds.buildNarrationHistory(txns);
+        expect(Object.keys(history).length).toBe(2);
+    });
+});
+
+describe("searchNarrations", () => {
+    const txns: ITransaction[] = [
+        {
+            blockId: "b1", uuid: "u1", date: "2024-03-10", status: "cleared",
+            payee: "海底捞", narration: "部门聚餐", postings: [
+                {account: "Expenses:Food:Dining", amount: 258, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -258, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b2", uuid: "u2", date: "2024-03-15", status: "cleared",
+            payee: "星巴克", narration: "下午茶", postings: [
+                {account: "Expenses:Food:Dining", amount: 42, currency: "CNY"},
+                {account: "Assets:WeChatPay", amount: -42, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b3", uuid: "u3", date: "2024-03-16", status: "cleared",
+            payee: "海底捞", narration: "部门聚餐", postings: [
+                {account: "Expenses:Food:Dining", amount: 300, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -300, currency: "CNY"},
+            ],
+        },
+    ];
+
+    const ds = new DataService();
+    ds.setCache({...ds.getCache(), narrationHistory: ds.buildNarrationHistory(txns)});
+
+    it("returns most used narrations when query is empty", () => {
+        const results = ds.searchNarrations("");
+        expect(results[0]).toBe("部门聚餐"); // count=2 > count=1
+        expect(results).toContain("下午茶");
+    });
+
+    it("filters by substring match", () => {
+        const results = ds.searchNarrations("聚餐");
+        expect(results).toContain("部门聚餐");
+        expect(results).not.toContain("下午茶");
+    });
+
+    it("returns empty for non-matching query", () => {
+        const results = ds.searchNarrations("xyz不存在");
+        expect(results.length).toBe(0);
+    });
+
+    it("respects limit", () => {
+        const results = ds.searchNarrations("", 1);
+        expect(results.length).toBe(1);
+    });
+});
+
+// ─── buildTagHistory / searchTags ─────────────────────────────────────────────
+
+describe("buildTagHistory", () => {
+    const txns: ITransaction[] = [
+        {
+            blockId: "b1", uuid: "u1", date: "2024-03-10", status: "cleared",
+            payee: "海底捞", tags: ["聚餐", "报销"], postings: [
+                {account: "Expenses:Food:Dining", amount: 258, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -258, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b2", uuid: "u2", date: "2024-03-15", status: "cleared",
+            payee: "星巴克", tags: ["聚餐"], postings: [
+                {account: "Expenses:Food:Dining", amount: 42, currency: "CNY"},
+                {account: "Assets:WeChatPay", amount: -42, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b3", uuid: "u3", date: "2024-03-16", status: "cleared",
+            payee: "滴滴出行", postings: [
+                {account: "Expenses:Transport:Taxi", amount: 32, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -32, currency: "CNY"},
+            ],
+        },
+    ];
+
+    const ds = new DataService();
+
+    it("builds tag history with correct counts", () => {
+        const history = ds.buildTagHistory(txns);
+        expect(history["聚餐"]).toBe(2);
+        expect(history["报销"]).toBe(1);
+    });
+
+    it("skips transactions without tags", () => {
+        const history = ds.buildTagHistory(txns);
+        expect(Object.keys(history).length).toBe(2);
+    });
+});
+
+describe("searchTags", () => {
+    const txns: ITransaction[] = [
+        {
+            blockId: "b1", uuid: "u1", date: "2024-03-10", status: "cleared",
+            payee: "海底捞", tags: ["聚餐", "报销"], postings: [
+                {account: "Expenses:Food:Dining", amount: 258, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -258, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b2", uuid: "u2", date: "2024-03-15", status: "cleared",
+            payee: "星巴克", tags: ["聚餐"], postings: [
+                {account: "Expenses:Food:Dining", amount: 42, currency: "CNY"},
+                {account: "Assets:WeChatPay", amount: -42, currency: "CNY"},
+            ],
+        },
+        {
+            blockId: "b3", uuid: "u3", date: "2024-03-16", status: "cleared",
+            payee: "公司", tags: ["报销", "差旅"], postings: [
+                {account: "Income:Reimbursement", amount: -380, currency: "CNY"},
+                {account: "Assets:BankCard", amount: 380, currency: "CNY"},
+            ],
+        },
+    ];
+
+    const ds = new DataService();
+    ds.setCache({...ds.getCache(), tagHistory: ds.buildTagHistory(txns)});
+
+    it("returns most used tags when query is empty", () => {
+        const results = ds.searchTags("");
+        expect(results[0]).toBe("聚餐"); // count=2 is highest
+    });
+
+    it("filters by substring match", () => {
+        const results = ds.searchTags("报");
+        expect(results).toContain("报销");
+        expect(results).not.toContain("聚餐");
+    });
+
+    it("returns empty for non-matching query", () => {
+        const results = ds.searchTags("xyz不存在");
+        expect(results.length).toBe(0);
+    });
+
+    it("respects limit", () => {
+        const results = ds.searchTags("", 1);
+        expect(results.length).toBe(1);
+    });
+
+    it("is case-insensitive for English tags", () => {
+        const ds2 = new DataService();
+        ds2.setCache({
+            ...ds2.getCache(),
+            tagHistory: {"Dinner": 3, "dining": 1, "Travel": 2},
+        });
+        const results = ds2.searchTags("din");
+        expect(results).toContain("Dinner");
+        expect(results).toContain("dining");
+    });
+});

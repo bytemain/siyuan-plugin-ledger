@@ -1,5 +1,5 @@
 /**
- * Autocomplete dropdown — shared UI component for payee and account suggestion lists.
+ * Autocomplete dropdown — shared UI component for payee, narration, and tag suggestion lists.
  */
 import {DataService} from "./dataService";
 
@@ -13,32 +13,34 @@ function escapeHtml(s: string): string {
         .replace(/>/g, "&gt;");
 }
 
-// ─── Payee autocomplete ──────────────────────────────────────────────────────
+// ─── Generic autocomplete core ──────────────────────────────────────────────
 
-export interface IPayeeAutoCompleteOptions {
-    /** The text input element for payee */
-    input: HTMLInputElement;
-    /** The DataService instance */
-    dataService: DataService;
-    /** Called when a payee is selected from the dropdown */
-    onSelect?: (payee: string) => void;
-    /** i18n strings */
-    i18n: Record<string, string>;
+interface IAutoCompleteItem {
+    text: string;
+    badge?: string;
 }
 
-/**
- * Attach a custom autocomplete dropdown to a payee input field.
- * Returns a cleanup function to remove event listeners.
- */
-export function attachPayeeAutocomplete(opts: IPayeeAutoCompleteOptions): () => void {
-    const {input, dataService: ds, onSelect} = opts;
+interface IGenericAutoCompleteOptions {
+    input: HTMLInputElement;
+    /** Fetch suggestions for the current query */
+    fetchItems: (query: string) => IAutoCompleteItem[];
+    /** Called when an item is selected */
+    onSelect?: (value: string) => void;
+    /** Extract the query substring to autocomplete (for multi-value inputs like tags) */
+    getQuery?: (input: HTMLInputElement) => string;
+    /** Apply the selected value back into the input (for multi-value inputs like tags) */
+    applyValue?: (input: HTMLInputElement, value: string) => void;
+}
 
-    // Create dropdown container
+function attachGenericAutocomplete(opts: IGenericAutoCompleteOptions): () => void {
+    const {input, fetchItems, onSelect} = opts;
+    const getQuery = opts.getQuery || ((inp: HTMLInputElement) => inp.value.trim());
+    const applyValue = opts.applyValue || ((inp: HTMLInputElement, value: string) => { inp.value = value; });
+
     const dropdown = document.createElement("div");
     dropdown.className = "ledger-autocomplete-dropdown";
     dropdown.style.display = "none";
 
-    // Insert dropdown right after the input's parent row
     const formRow = input.closest(".ledger-form-row") || input.parentElement;
     if (formRow?.parentElement) {
         formRow.parentElement.insertBefore(dropdown, formRow.nextSibling);
@@ -47,9 +49,9 @@ export function attachPayeeAutocomplete(opts: IPayeeAutoCompleteOptions): () => 
     }
 
     let activeIndex = -1;
-    let currentItems: string[] = [];
+    let currentItems: IAutoCompleteItem[] = [];
 
-    function renderDropdown(items: string[]) {
+    function renderDropdown(items: IAutoCompleteItem[]) {
         currentItems = items;
         activeIndex = -1;
         if (items.length === 0) {
@@ -57,14 +59,10 @@ export function attachPayeeAutocomplete(opts: IPayeeAutoCompleteOptions): () => 
             return;
         }
         dropdown.innerHTML = items.map((item, i) => {
-            const stats = ds.getPayeeStats(item);
-            const countBadge = stats ? `<span class="ledger-ac-count">${stats.count}×</span>` : "";
-            const avgBadge = stats && stats.count > 0
-                ? `<span class="ledger-ac-avg">≈${Math.round(stats.totalAmount / stats.count)}</span>`
-                : "";
-            return `<div class="ledger-ac-item" data-index="${i}" data-value="${escapeHtml(item)}">
-                <span class="ledger-ac-text">${escapeHtml(item)}</span>
-                <span class="ledger-ac-badges">${countBadge}${avgBadge}</span>
+            const badge = item.badge ? `<span class="ledger-ac-count">${escapeHtml(item.badge)}</span>` : "";
+            return `<div class="ledger-ac-item" data-index="${i}" data-value="${escapeHtml(item.text)}">
+                <span class="ledger-ac-text">${escapeHtml(item.text)}</span>
+                <span class="ledger-ac-badges">${badge}</span>
             </div>`;
         }).join("");
         dropdown.style.display = "";
@@ -72,10 +70,10 @@ export function attachPayeeAutocomplete(opts: IPayeeAutoCompleteOptions): () => 
 
     function selectItem(index: number) {
         if (index < 0 || index >= currentItems.length) return;
-        const payee = currentItems[index];
-        input.value = payee;
+        const value = currentItems[index].text;
+        applyValue(input, value);
         dropdown.style.display = "none";
-        onSelect?.(payee);
+        onSelect?.(value);
     }
 
     function updateHighlight() {
@@ -85,9 +83,9 @@ export function attachPayeeAutocomplete(opts: IPayeeAutoCompleteOptions): () => 
         });
     }
 
-    function onInput() {
-        const query = input.value.trim();
-        const results = ds.searchPayees(query, 8);
+    function onInputHandler() {
+        const query = getQuery(input);
+        const results = fetchItems(query);
         renderDropdown(results);
     }
 
@@ -119,33 +117,139 @@ export function attachPayeeAutocomplete(opts: IPayeeAutoCompleteOptions): () => 
     }
 
     function onBlur() {
-        // Delay to allow click events on the dropdown to fire first
-        setTimeout(() => {
-            dropdown.style.display = "none";
-        }, 200);
+        setTimeout(() => { dropdown.style.display = "none"; }, 200);
     }
 
     function onFocus() {
-        if (input.value.trim() || Object.keys(ds.getCache().payeeHistory).length > 0) {
-            onInput();
-        }
+        onInputHandler();
     }
 
-    input.addEventListener("input", onInput);
+    input.addEventListener("input", onInputHandler);
     input.addEventListener("keydown", onKeyDown);
     input.addEventListener("blur", onBlur);
     input.addEventListener("focus", onFocus);
     dropdown.addEventListener("mousedown", onDropdownClick);
 
-    // Remove the native datalist if present
     input.removeAttribute("list");
 
     return () => {
-        input.removeEventListener("input", onInput);
+        input.removeEventListener("input", onInputHandler);
         input.removeEventListener("keydown", onKeyDown);
         input.removeEventListener("blur", onBlur);
         input.removeEventListener("focus", onFocus);
         dropdown.removeEventListener("mousedown", onDropdownClick);
         dropdown.remove();
     };
+}
+
+// ─── Payee autocomplete ──────────────────────────────────────────────────────
+
+export interface IPayeeAutoCompleteOptions {
+    /** The text input element for payee */
+    input: HTMLInputElement;
+    /** The DataService instance */
+    dataService: DataService;
+    /** Called when a payee is selected from the dropdown */
+    onSelect?: (payee: string) => void;
+    /** i18n strings */
+    i18n: Record<string, string>;
+}
+
+/**
+ * Attach a custom autocomplete dropdown to a payee input field.
+ * Returns a cleanup function to remove event listeners.
+ */
+export function attachPayeeAutocomplete(opts: IPayeeAutoCompleteOptions): () => void {
+    const {input, dataService: ds, onSelect} = opts;
+
+    return attachGenericAutocomplete({
+        input,
+        fetchItems: (query: string) => {
+            const results = ds.searchPayees(query, 8);
+            return results.map(payee => {
+                const stats = ds.getPayeeStats(payee);
+                const parts: string[] = [];
+                if (stats) parts.push(`${stats.count}×`);
+                if (stats && stats.count > 0) parts.push(`≈${Math.round(stats.totalAmount / stats.count)}`);
+                return {text: payee, badge: parts.join(" ")};
+            });
+        },
+        onSelect,
+    });
+}
+
+// ─── Narration autocomplete ─────────────────────────────────────────────────
+
+export interface INarrationAutoCompleteOptions {
+    input: HTMLInputElement;
+    dataService: DataService;
+    onSelect?: (narration: string) => void;
+}
+
+/**
+ * Attach autocomplete to a narration input field.
+ * Returns a cleanup function.
+ */
+export function attachNarrationAutocomplete(opts: INarrationAutoCompleteOptions): () => void {
+    const {input, dataService: ds, onSelect} = opts;
+
+    return attachGenericAutocomplete({
+        input,
+        fetchItems: (query: string) => {
+            const results = ds.searchNarrations(query, 8);
+            const history = ds.getCache().narrationHistory ?? {};
+            return results.map(n => ({
+                text: n,
+                badge: history[n] > 1 ? `${history[n]}×` : undefined,
+            }));
+        },
+        onSelect,
+    });
+}
+
+// ─── Tag autocomplete ───────────────────────────────────────────────────────
+
+export interface ITagAutoCompleteOptions {
+    input: HTMLInputElement;
+    dataService: DataService;
+    onSelect?: (tag: string) => void;
+}
+
+/**
+ * Attach autocomplete to a tags input field (comma-separated multi-value).
+ * Autocomplete operates on the last tag being typed after the last comma.
+ * Returns a cleanup function.
+ */
+export function attachTagAutocomplete(opts: ITagAutoCompleteOptions): () => void {
+    const {input, dataService: ds, onSelect} = opts;
+
+    return attachGenericAutocomplete({
+        input,
+        getQuery: (inp: HTMLInputElement) => {
+            // Extract the current (last) tag being typed
+            const parts = inp.value.split(",");
+            return (parts[parts.length - 1] || "").trim();
+        },
+        fetchItems: (query: string) => {
+            // Exclude tags already entered
+            const existingTags = new Set(
+                input.value.split(",").map(t => t.trim().toLowerCase()).filter(Boolean)
+            );
+            const results = ds.searchTags(query, 8)
+                .filter(t => !existingTags.has(t.toLowerCase()));
+            const history = ds.getCache().tagHistory ?? {};
+            return results.map(t => ({
+                text: t,
+                badge: history[t] > 1 ? `${history[t]}×` : undefined,
+            }));
+        },
+        applyValue: (inp: HTMLInputElement, value: string) => {
+            // Replace the last partial tag with the selected value
+            const parts = inp.value.split(",").map(t => t.trim()).filter(Boolean);
+            parts.pop(); // remove the partial tag being typed
+            parts.push(value);
+            inp.value = parts.join(", ") + ", ";
+        },
+        onSelect,
+    });
 }

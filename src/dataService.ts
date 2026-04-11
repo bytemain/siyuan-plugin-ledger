@@ -182,6 +182,8 @@ export class DataService {
         recentPayees: [],
         recentAccounts: [],
         payeeHistory: {},
+        narrationHistory: {},
+        tagHistory: {},
     };
 
     // ─── Configuration ──────────────────────────────────────────────────
@@ -492,6 +494,20 @@ export class DataService {
                 };
             }
         }
+        // Update narration history
+        const narration = tx.narration?.trim();
+        if (narration) {
+            if (!this.cache.narrationHistory) this.cache.narrationHistory = {};
+            this.cache.narrationHistory[narration] = (this.cache.narrationHistory[narration] || 0) + 1;
+        }
+        // Update tag history
+        if (tx.tags && tx.tags.length > 0) {
+            if (!this.cache.tagHistory) this.cache.tagHistory = {};
+            for (const tag of tx.tags) {
+                const t = tag.trim();
+                if (t) this.cache.tagHistory[t] = (this.cache.tagHistory[t] || 0) + 1;
+            }
+        }
         // Invalidate balance cache
         this.cache.accountBalances = {};
         this.cache.monthlyExpenses = {};
@@ -522,6 +538,10 @@ export class DataService {
 
         // Build payee history
         this.cache.payeeHistory = this.buildPayeeHistory(all);
+
+        // Build narration and tag history
+        this.cache.narrationHistory = this.buildNarrationHistory(all);
+        this.cache.tagHistory = this.buildTagHistory(all);
     }
 
     /** Build per-payee statistics from a list of transactions. */
@@ -575,6 +595,83 @@ export class DataService {
                 const bPrefix = b.toLowerCase().startsWith(q) ? 0 : 1;
                 if (aPrefix !== bPrefix) return aPrefix - bPrefix;
                 return history[b].count - history[a].count;
+            })
+            .slice(0, limit);
+    }
+
+    // ─── Narration history ──────────────────────────────────────────────
+
+    /** Build narration usage counts from a list of transactions. */
+    buildNarrationHistory(transactions: ITransaction[]): Record<string, number> {
+        const history: Record<string, number> = {};
+        for (const tx of transactions) {
+            const n = tx.narration?.trim();
+            if (!n) continue;
+            history[n] = (history[n] || 0) + 1;
+        }
+        return history;
+    }
+
+    /**
+     * Search narrations matching a query string (prefix or substring, case-insensitive).
+     * Returns results sorted by usage count (most used first), limited to `limit`.
+     */
+    searchNarrations(query: string, limit = 8): string[] {
+        const q = query.toLowerCase();
+        const history = this.cache.narrationHistory ?? {};
+        const all = Object.keys(history);
+        if (!q) {
+            return all
+                .sort((a, b) => history[b] - history[a])
+                .slice(0, limit);
+        }
+        return all
+            .filter(n => n.toLowerCase().includes(q))
+            .sort((a, b) => {
+                const aPrefix = a.toLowerCase().startsWith(q) ? 0 : 1;
+                const bPrefix = b.toLowerCase().startsWith(q) ? 0 : 1;
+                if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+                return history[b] - history[a];
+            })
+            .slice(0, limit);
+    }
+
+    // ─── Tag history ────────────────────────────────────────────────────
+
+    /** Build tag usage counts from a list of transactions. */
+    buildTagHistory(transactions: ITransaction[]): Record<string, number> {
+        const history: Record<string, number> = {};
+        for (const tx of transactions) {
+            if (!tx.tags) continue;
+            for (const tag of tx.tags) {
+                const t = tag.trim();
+                if (!t) continue;
+                history[t] = (history[t] || 0) + 1;
+            }
+        }
+        return history;
+    }
+
+    /**
+     * Search tags matching a query string (prefix or substring, case-insensitive).
+     * Returns results sorted by usage count (most used first), limited to `limit`.
+     */
+    searchTags(query: string, limit = 8): string[] {
+        const q = query.toLowerCase();
+        const history = this.cache.tagHistory ?? {};
+        const all = Object.keys(history);
+        if (!q) {
+            return all
+                .sort((a, b) => history[b] - history[a])
+                .slice(0, limit);
+        }
+        return all
+            .filter(t => t.toLowerCase().includes(q))
+            .sort((a, b) => {
+                const aPrefix = a.toLowerCase().startsWith(q) ? 0 : 1;
+                const bPrefix = b.toLowerCase().startsWith(q) ? 0 : 1;
+                if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+                return history[b] - history[a];
             })
             .slice(0, limit);
     }
