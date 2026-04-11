@@ -58,6 +58,8 @@ export default class LedgerPlugin extends Plugin {
     private txObserverDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     /** Retry timer for shadow DOM handler injection */
     private shadowRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Remaining retry attempts for shadow DOM handler injection */
+    private shadowRetryCount = 0;
     /** Bound handler refs for cleanup */
     private boundClickHandler: ((e: MouseEvent) => void) | null = null;
     private boundDblClickHandler: ((e: MouseEvent) => void) | null = null;
@@ -645,6 +647,7 @@ export default class LedgerPlugin extends Plugin {
     private setupTransactionBlockObserver() {
         this.txBlockObserver = new MutationObserver(() => {
             if (this.txObserverDebounceTimer) clearTimeout(this.txObserverDebounceTimer);
+            this.shadowRetryCount = 0; // Reset retries on new DOM changes
             this.txObserverDebounceTimer = setTimeout(() => this.injectShadowDOMHandlers(), 300);
         });
         this.txBlockObserver.observe(document.body, {
@@ -715,7 +718,9 @@ export default class LedgerPlugin extends Plugin {
         }
 
         // Schedule a retry if there are blocks waiting for shadow root
-        if (hasPending) {
+        // (limited to 10 attempts to prevent indefinite retries)
+        if (hasPending && this.shadowRetryCount < 10) {
+            this.shadowRetryCount++;
             if (this.shadowRetryTimer) clearTimeout(this.shadowRetryTimer);
             this.shadowRetryTimer = setTimeout(() => this.injectShadowDOMHandlers(), 500);
         }
