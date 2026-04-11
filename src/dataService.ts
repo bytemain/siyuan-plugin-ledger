@@ -21,7 +21,7 @@ import {
     DEFAULT_CONFIG,
 } from "./types";
 import {DEFAULT_ACCOUNTS} from "./defaultAccounts";
-import {buildHTMLBlockDOM} from "./blockRenderer";
+import {buildHTMLBlockContent} from "./blockRenderer";
 
 // ─── IAL helper ──────────────────────────────────────────────────────────────
 
@@ -258,14 +258,14 @@ export class DataService {
         const uuid = tx.uuid || generateUUID();
         const fullTx: ITransaction = {...tx, blockId: "", uuid};
 
-        const domContent = buildHTMLBlockDOM(fullTx, this.config, this.i18n);
+        const htmlContent = buildHTMLBlockContent(fullTx, this.config, this.i18n);
 
         return new Promise((resolve, reject) => {
             fetchPost(
                 "/api/block/insertBlock",
                 {
-                    dataType: "dom",
-                    data: domContent,
+                    dataType: "markdown",
+                    data: htmlContent,
                     parentID,
                     previousID,
                 },
@@ -290,14 +290,14 @@ export class DataService {
     }
 
     async updateTransaction(tx: ITransaction): Promise<void> {
-        const domContent = buildHTMLBlockDOM(tx, this.config, this.i18n);
+        const htmlContent = buildHTMLBlockContent(tx, this.config, this.i18n);
 
         await new Promise<void>((resolve, reject) => {
             fetchPost(
                 "/api/block/updateBlock",
                 {
-                    dataType: "dom",
-                    data: domContent,
+                    dataType: "markdown",
+                    data: htmlContent,
                     id: tx.blockId,
                 },
                 (res) => (res.code === 0 ? resolve() : reject(new Error(res.msg))),

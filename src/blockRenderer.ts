@@ -1,8 +1,10 @@
 /**
- * Block renderer — builds transaction blocks as native SiYuan HTML blocks.
+ * Block renderer — builds transaction HTML content for SiYuan HTML blocks.
  *
- * Transactions are stored as SiYuan `NodeHTMLBlock` blocks. The block content
- * is a self-contained HTML card with embedded CSS (for shadow DOM rendering).
+ * Transactions are inserted as SiYuan HTML blocks using `dataType: "markdown"`
+ * with raw HTML content. SiYuan's Lute parser recognizes raw HTML starting with
+ * block-level tags (like `<div>`) and creates a `NodeHTMLBlock` automatically.
+ * The block content is then rendered inside a shadow DOM.
  *
  * Card features:
  * - Visual layout: date, status badge, payee, total amount, postings, tags
@@ -102,7 +104,10 @@ function getCardCSS(): string {
 // ─── Card HTML builder ───────────────────────────────────────────────────────
 
 /**
- * Build the HTML string for a transaction card (inner content only).
+ * Build the HTML string for a transaction card.
+ *
+ * The generated HTML is compact (no blank lines) so that SiYuan's Lute parser
+ * treats it as a single HTML block when inserted via `dataType: "markdown"`.
  */
 export function buildTransactionCardHTML(
     date: string,
@@ -141,53 +146,61 @@ export function buildTransactionCardHTML(
     };
     const amountClass = amountClassMap[txType];
 
-    // Posting rows
+    // Posting rows (compact, no newlines between elements)
     const postingRows = postings.map(p => {
         const icon = p.amount >= 0 ? "📤" : "📥";
         const shortAccount = p.account.split(":").slice(-2).join(":");
-        return `<div class="ledger-card-posting">
-      <span class="ledger-card-posting-icon">${icon}</span>
-      <span class="ledger-card-posting-account" title="${escapeHTML(p.account)}">${escapeHTML(shortAccount)}</span>
-      <span class="ledger-card-posting-amount">${escapeHTML(sym(p.currency))}${p.amount.toFixed(2)}</span>
-    </div>`;
+        return "<div class=\"ledger-card-posting\">"
+            + `<span class="ledger-card-posting-icon">${icon}</span>`
+            + `<span class="ledger-card-posting-account" title="${escapeHTML(p.account)}">${escapeHTML(shortAccount)}</span>`
+            + `<span class="ledger-card-posting-amount">${escapeHTML(sym(p.currency))}${p.amount.toFixed(2)}</span>`
+            + "</div>";
     }).join("");
 
-    // Tags
+    // Tags (compact)
     const tagsHTML = tags.length > 0
         ? `<div class="ledger-card-tags">🏷️ ${tags.map(t => `<span class="ledger-card-tag">${escapeHTML(t)}</span>`).join("")}</div>`
         : "";
 
-    // Narration
+    // Narration (compact)
     const narrationHTML = narration
         ? `<span class="ledger-card-narration" title="${escapeHTML(narration)}">${escapeHTML(narration)}</span>`
         : "";
 
-    return `<div class="ledger-tx-card ledger-card--${txType}">
-  <div class="ledger-card-header">
-    <span class="ledger-card-date">📅 ${escapeHTML(date)}</span>
-    <span class="ledger-card-status ledger-card-status--${status}" title="${escapeHTML(statusLabel)}">${statusIcon}</span>
-    <span class="ledger-card-payee">${escapeHTML(payee)}</span>
-    <span class="ledger-card-amount ${amountClass}">${escapeHTML(sym(currency))}${amount.toFixed(2)}</span>
-    <div class="ledger-card-actions">
-      <button class="ledger-card-btn ledger-card-btn--edit" title="${escapeHTML(i18n.editTransaction || "Edit")}" data-action="edit">✏️</button>
-      <button class="ledger-card-btn ledger-card-btn--delete" title="${escapeHTML(i18n.deleteTransaction || "Delete")}" data-action="delete">🗑️</button>
-    </div>
-  </div>
-  <div class="ledger-card-body">
-    ${postingRows}
-  </div>
-  <div class="ledger-card-footer">
-    ${narrationHTML}
-    ${tagsHTML}
-  </div>
-</div>`;
+    // Footer — only rendered if there's content, to avoid blank-line issues
+    const footerContent = narrationHTML + tagsHTML;
+    const footerHTML = footerContent
+        ? `<div class="ledger-card-footer">${footerContent}</div>`
+        : "";
+
+    // Build compact HTML (no blank lines — critical for Lute HTML block parsing)
+    return `<div class="ledger-tx-card ledger-card--${txType}">`
+        + "<div class=\"ledger-card-header\">"
+        + `<span class="ledger-card-date">📅 ${escapeHTML(date)}</span>`
+        + `<span class="ledger-card-status ledger-card-status--${status}" title="${escapeHTML(statusLabel)}">${statusIcon}</span>`
+        + `<span class="ledger-card-payee">${escapeHTML(payee)}</span>`
+        + `<span class="ledger-card-amount ${amountClass}">${escapeHTML(sym(currency))}${amount.toFixed(2)}</span>`
+        + "<div class=\"ledger-card-actions\">"
+        + `<button class="ledger-card-btn ledger-card-btn--edit" title="${escapeHTML(i18n.editTransaction || "Edit")}" data-action="edit">✏️</button>`
+        + `<button class="ledger-card-btn ledger-card-btn--delete" title="${escapeHTML(i18n.deleteTransaction || "Delete")}" data-action="delete">🗑️</button>`
+        + "</div></div>"
+        + `<div class="ledger-card-body">${postingRows}</div>`
+        + footerHTML
+        + "</div>";
 }
 
 // ─── Full HTML block content ─────────────────────────────────────────────────
 
 /**
  * Build the complete HTML content for a transaction HTML block.
- * Includes embedded <style> for shadow DOM isolation and the card HTML.
+ *
+ * The content is wrapped in a single `<div>` container so Lute's HTML block
+ * parser treats it as one block. The embedded `<style>` provides CSS for
+ * shadow DOM rendering.
+ *
+ * Used as the `data` parameter with `dataType: "markdown"` in SiYuan's
+ * insertBlock / updateBlock API. Lute recognises raw HTML starting with
+ * `<div>` and creates a `NodeHTMLBlock` automatically.
  */
 export function buildHTMLBlockContent(
     tx: ITransaction,
@@ -199,34 +212,7 @@ export function buildHTMLBlockContent(
         tx.date, tx.status, tx.payee, tx.narration || "",
         tx.postings, tags, config, i18n,
     );
-    return `<style>${getCardCSS()}</style>${cardHTML}`;
-}
-
-/**
- * Build the full SiYuan DOM string for inserting a NodeHTMLBlock via the API.
- *
- * SiYuan HTML blocks use a <protyle-html data-content="..."> element where
- * the HTML content is stored as an HTML-escaped string in the data-content
- * attribute. SiYuan renders this inside a shadow DOM.
- */
-export function buildHTMLBlockDOM(
-    tx: ITransaction,
-    config: ILedgerConfig,
-    i18n: Record<string, string>,
-): string {
-    const htmlContent = buildHTMLBlockContent(tx, config, i18n);
-    const escapedContent = escapeHTML(htmlContent);
-
-    // SiYuan NodeHTMLBlock DOM structure:
-    // - render-node container with data-type="NodeHTMLBlock"
-    // - protyle-action__language label ("HTML")
-    // - protyle-html element holding the escaped HTML in data-content
-    // - protyle-attr footer
-    const wrapper = '<div data-type="NodeHTMLBlock" class="render-node">';
-    const langLabel = '<div class="protyle-action__language" contenteditable="false">HTML</div>';
-    const htmlSlot = `<div><protyle-html data-content="${escapedContent}"></protyle-html>`
-        + '<span style="position: absolute">\u200b</span></div>';
-    const attrSlot = '<div class="protyle-attr" contenteditable="false"></div>';
-
-    return `${wrapper}${langLabel}${htmlSlot}${attrSlot}</div>`;
+    // Wrap in a container <div> with embedded <style>.
+    // No blank lines — Lute ends an HTML block at a blank line.
+    return `<div class="ledger-tx-wrapper"><style>${getCardCSS()}</style>${cardHTML}</div>`;
 }

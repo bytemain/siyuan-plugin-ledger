@@ -1,5 +1,5 @@
 import {describe, it, expect} from "vitest";
-import {buildTransactionCardHTML, buildHTMLBlockContent, buildHTMLBlockDOM} from "../blockRenderer";
+import {buildTransactionCardHTML, buildHTMLBlockContent} from "../blockRenderer";
 import {DEFAULT_CONFIG} from "../types";
 import type {IPosting, ITransaction} from "../types";
 
@@ -183,49 +183,29 @@ describe("buildHTMLBlockContent", () => {
         expect(html).toContain("¥5.00");
         expect(html).toContain("coffee");
     });
-});
 
-// ─── buildHTMLBlockDOM ───────────────────────────────────────────────────────
-
-describe("buildHTMLBlockDOM", () => {
-    const tx: ITransaction = {
-        blockId: "block-1",
-        uuid: "uuid-1",
-        date: "2024-03-15",
-        status: "cleared",
-        payee: "Test",
-        narration: "",
-        postings: [
-            {account: "Expenses:Food", amount: 10, currency: "CNY"},
-            {account: "Assets:Bank", amount: -10, currency: "CNY"},
-        ],
-        tags: [],
-    };
-
-    it("wraps content in NodeHTMLBlock DOM structure", () => {
-        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
-        expect(dom).toContain('data-type="NodeHTMLBlock"');
-        expect(dom).toContain("render-node");
-        expect(dom).toContain("protyle-html");
-        expect(dom).toContain("data-content=");
-        expect(dom).toContain("protyle-attr");
+    it("wraps content in a container div", () => {
+        const html = buildHTMLBlockContent(tx, DEFAULT_CONFIG, i18n);
+        // Must start with <div to be recognised as an HTML block by Lute
+        expect(html).toMatch(/^<div class="ledger-tx-wrapper">/);
+        expect(html).toMatch(/<\/div>$/);
     });
 
-    it("HTML-escapes the content for the data-content attribute", () => {
-        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
-        // The data-content attribute should contain HTML-escaped content
-        // e.g., <style> becomes &lt;style&gt;
-        expect(dom).toContain("&lt;style&gt;");
-        expect(dom).toContain("&lt;div");
+    it("does not contain blank lines (critical for Lute HTML block parsing)", () => {
+        const html = buildHTMLBlockContent(tx, DEFAULT_CONFIG, i18n);
+        // Blank lines would cause Lute to split this into multiple blocks
+        const lines = html.split("\n");
+        const hasBlankLine = lines.some(line => line.trim() === "");
+        expect(hasBlankLine).toBe(false);
     });
 
-    it("escapes content safely to prevent attribute injection", () => {
+    it("escapes content safely to prevent XSS", () => {
         const maliciousTx: ITransaction = {
             ...tx,
-            payee: 'Test" onload="alert(1)',
+            payee: '<script>alert("xss")</script>',
         };
-        const dom = buildHTMLBlockDOM(maliciousTx, DEFAULT_CONFIG, i18n);
-        // The quote should be double-escaped so it can't break out of data-content
-        expect(dom).not.toContain('onload="alert');
+        const html = buildHTMLBlockContent(maliciousTx, DEFAULT_CONFIG, i18n);
+        expect(html).not.toContain("<script>");
+        expect(html).toContain("&lt;script&gt;");
     });
 });

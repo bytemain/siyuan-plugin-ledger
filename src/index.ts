@@ -52,6 +52,10 @@ export default class LedgerPlugin extends Plugin {
     private topBarElement: HTMLElement | null = null;
     private statusBarElement: HTMLElement | null = null;
 
+    /** MutationObserver for injecting button handlers into shadow DOM */
+    private txBlockObserver: MutationObserver | null = null;
+    /** Debounce timer for MutationObserver callback */
+    private txObserverDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     /** Bound handler refs for cleanup */
     private boundClickHandler: ((e: MouseEvent) => void) | null = null;
     private boundDblClickHandler: ((e: MouseEvent) => void) | null = null;
@@ -90,6 +94,9 @@ export default class LedgerPlugin extends Plugin {
 
         // Register EventBus listeners
         this.registerEventBusListeners();
+
+        // MutationObserver: inject button handlers into HTML block shadow DOMs
+        this.setupTransactionBlockObserver();
 
         // Global click handler for edit/delete buttons inside HTML block shadow DOM
         this.setupCardButtonHandler();
@@ -136,6 +143,12 @@ export default class LedgerPlugin extends Plugin {
     }
 
     onunload() {
+        this.txBlockObserver?.disconnect();
+        this.txBlockObserver = null;
+        if (this.txObserverDebounceTimer) {
+            clearTimeout(this.txObserverDebounceTimer);
+            this.txObserverDebounceTimer = null;
+        }
         if (this.boundClickHandler) {
             document.removeEventListener("click", this.boundClickHandler, true);
             this.boundClickHandler = null;
@@ -615,10 +628,83 @@ export default class LedgerPlugin extends Plugin {
     // ─── Transaction block interaction handlers ─────────────────────────────
 
     /**
+     * MutationObserver that watches for transaction HTML blocks appearing in the
+     * DOM and injects click handlers into their shadow DOMs.
+     *
+     * When SiYuan renders an HTML block, it creates a <protyle-html> element
+     * with an open shadow root. We find transaction blocks by their
+     * custom-ledger-type attribute, access the shadow root, and attach click
+     * handlers to the edit/delete buttons inside.
+     */
+    private setupTransactionBlockObserver() {
+        this.txBlockObserver = new MutationObserver(() => {
+            if (this.txObserverDebounceTimer) clearTimeout(this.txObserverDebounceTimer);
+            this.txObserverDebounceTimer = setTimeout(() => this.injectShadowDOMHandlers(), 300);
+        });
+        this.txBlockObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+        });
+        // Run once immediately for any blocks already on screen
+        this.injectShadowDOMHandlers();
+    }
+
+    /**
+     * Scan all transaction blocks and inject click handlers into their shadow
+     * DOMs. This is idempotent — already-injected blocks are skipped.
+     */
+    private injectShadowDOMHandlers() {
+        const blocks = document.querySelectorAll<HTMLElement>(
+            `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
+        );
+        for (const block of blocks) {
+            // Skip if already processed
+            if (block.dataset.ledgerHandled === "1") continue;
+            block.dataset.ledgerHandled = "1";
+
+            // Find the protyle-html element inside this block
+            const protyleHtml = block.querySelector("protyle-html");
+            if (!protyleHtml?.shadowRoot) continue;
+
+            const shadowRoot = protyleHtml.shadowRoot;
+
+            // Attach click handlers to buttons inside the shadow DOM
+            const editBtn = shadowRoot.querySelector("[data-action='edit']");
+            const deleteBtn = shadowRoot.querySelector("[data-action='delete']");
+
+            const blockId = block.dataset.nodeId
+                || block.getAttribute("data-node-id")
+                || "";
+
+            if (editBtn && blockId) {
+                editBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    this.openEditTransactionById(blockId);
+                });
+            }
+
+            if (deleteBtn && blockId) {
+                deleteBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    confirm("\u26a0\ufe0f", this.i18n.confirmDeleteTx, () => {
+                        this.dataService.deleteTransaction(blockId).then(() => {
+                            showMessage("[Ledger] " + this.i18n.txDeleted);
+                        });
+                    });
+                });
+            }
+        }
+    }
+
+    /**
      * Global click handler that uses composedPath() to detect edit/delete
-     * button clicks inside HTML block shadow DOM. Since SiYuan renders HTML
-     * blocks in a shadow root, regular event delegation won't see the buttons.
-     * composedPath() crosses shadow boundaries and lets us find the buttons.
+     * button clicks inside HTML block shadow DOM. This serves as a fallback
+     * in case the MutationObserver hasn't processed a block yet.
+     *
+     * composedPath() crosses shadow boundaries and lets us find buttons
+     * that are inside an open shadow root.
      */
     private setupCardButtonHandler() {
         this.boundClickHandler = (e: MouseEvent) => {
