@@ -385,6 +385,7 @@ export default class LedgerPlugin extends Plugin {
             container.innerHTML = "<div style=\"padding:20px;text-align:center\">Loading\u2026</div>";
             await this.dataService.refreshCache();
             await this.savePersistedCache();
+            if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
             this.renderDashboard(container);
         });
     }
@@ -519,6 +520,7 @@ export default class LedgerPlugin extends Plugin {
         element.querySelector("#ledger-dock-refresh")?.addEventListener("click", async () => {
             await this.dataService.refreshCache();
             await this.savePersistedCache();
+            if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
             element.innerHTML = this.buildDockHTML();
             this.attachDockEvents(element);
         });
@@ -879,6 +881,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -898,6 +901,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -917,6 +921,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -935,6 +940,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -956,6 +962,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -977,6 +984,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
+                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -1037,6 +1045,7 @@ export default class LedgerPlugin extends Plugin {
                     }
                     await this.dataService.refreshCache();
                     await this.savePersistedCache();
+                    if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
                     showMessage(`[Ledger] ${this.i18n.importSuccess}: ${txns.length} ${this.i18n.transactions}`);
                 } catch (e) {
                     console.error("[SiYuan Ledger] import failed:", e);
