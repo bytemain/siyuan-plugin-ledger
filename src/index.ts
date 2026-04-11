@@ -56,6 +56,8 @@ export default class LedgerPlugin extends Plugin {
     private txBlockObserver: MutationObserver | null = null;
     /** Debounce timer for MutationObserver callback */
     private txObserverDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Retry timer for shadow DOM handler injection */
+    private shadowRetryTimer: ReturnType<typeof setTimeout> | null = null;
     /** Bound handler refs for cleanup */
     private boundClickHandler: ((e: MouseEvent) => void) | null = null;
     private boundDblClickHandler: ((e: MouseEvent) => void) | null = null;
@@ -148,6 +150,10 @@ export default class LedgerPlugin extends Plugin {
         if (this.txObserverDebounceTimer) {
             clearTimeout(this.txObserverDebounceTimer);
             this.txObserverDebounceTimer = null;
+        }
+        if (this.shadowRetryTimer) {
+            clearTimeout(this.shadowRetryTimer);
+            this.shadowRetryTimer = null;
         }
         if (this.boundClickHandler) {
             document.removeEventListener("click", this.boundClickHandler, true);
@@ -652,19 +658,27 @@ export default class LedgerPlugin extends Plugin {
     /**
      * Scan all transaction blocks and inject click handlers into their shadow
      * DOMs. This is idempotent — already-injected blocks are skipped.
+     *
+     * If a block's shadow root isn't ready yet (common right after insert),
+     * the block is NOT marked as handled so that retries can pick it up.
+     * A retry is automatically scheduled when pending blocks are detected.
      */
     private injectShadowDOMHandlers() {
+        let hasPending = false;
         const blocks = document.querySelectorAll<HTMLElement>(
             `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
         );
         for (const block of blocks) {
             // Skip if already processed
             if (block.dataset.ledgerHandled === "1") continue;
-            block.dataset.ledgerHandled = "1";
 
             // Find the protyle-html element inside this block
             const protyleHtml = block.querySelector("protyle-html");
-            if (!protyleHtml?.shadowRoot) continue;
+            if (!protyleHtml?.shadowRoot) {
+                // Shadow root not ready yet — don't mark as handled, will retry
+                hasPending = true;
+                continue;
+            }
 
             const shadowRoot = protyleHtml.shadowRoot;
 
@@ -695,6 +709,15 @@ export default class LedgerPlugin extends Plugin {
                     });
                 });
             }
+
+            // Mark as handled only after successfully processing
+            block.dataset.ledgerHandled = "1";
+        }
+
+        // Schedule a retry if there are blocks waiting for shadow root
+        if (hasPending) {
+            if (this.shadowRetryTimer) clearTimeout(this.shadowRetryTimer);
+            this.shadowRetryTimer = setTimeout(() => this.injectShadowDOMHandlers(), 500);
         }
     }
 

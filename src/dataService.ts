@@ -282,6 +282,24 @@ export class DataService {
                     fullTx.blockId = blockId;
                     this.setTransactionAttrs(blockId, fullTx).then(() => {
                         this.updateCacheAfterInsert(fullTx);
+
+                        // Force the protyle to re-render the block as a proper
+                        // HTML block with shadow DOM. After insertBlock, the
+                        // protyle may not have fully initialised the <protyle-html>
+                        // element yet; updating with the same content forces it to
+                        // create the correct DOM structure. This is non-blocking.
+                        setTimeout(() => {
+                            fetchPost(
+                                "/api/block/updateBlock",
+                                {
+                                    dataType: "markdown",
+                                    data: htmlContent,
+                                    id: blockId,
+                                },
+                                () => { /* fire-and-forget */ },
+                            );
+                        }, 200);
+
                         resolve(blockId);
                     }).catch(reject);
                 },
