@@ -52,6 +52,13 @@ export default class LedgerPlugin extends Plugin {
     private topBarElement: HTMLElement | null = null;
     private statusBarElement: HTMLElement | null = null;
 
+    /** MutationObserver for injecting edit buttons into transaction blocks */
+    private txBlockObserver: MutationObserver | null = null;
+    /** Debounce timer for MutationObserver callback */
+    private txObserverDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Bound handler refs for cleanup */
+    private boundDblClickHandler: ((e: MouseEvent) => void) | null = null;
+
     // ─── Lifecycle ───────────────────────────────────────────────────────────
 
     async onload() {
@@ -83,6 +90,12 @@ export default class LedgerPlugin extends Plugin {
 
         // Register EventBus listeners
         this.registerEventBusListeners();
+
+        // MutationObserver: inject edit buttons whenever new transaction blocks appear
+        this.setupTransactionBlockObserver();
+
+        // Double-click on transaction blocks to edit
+        this.setupDblClickHandler();
 
         console.log(this.i18n.helloPlugin);
     }
@@ -123,6 +136,16 @@ export default class LedgerPlugin extends Plugin {
     }
 
     onunload() {
+        this.txBlockObserver?.disconnect();
+        this.txBlockObserver = null;
+        if (this.txObserverDebounceTimer) {
+            clearTimeout(this.txObserverDebounceTimer);
+            this.txObserverDebounceTimer = null;
+        }
+        if (this.boundDblClickHandler) {
+            document.removeEventListener("dblclick", this.boundDblClickHandler);
+            this.boundDblClickHandler = null;
+        }
         console.log(this.i18n.byePlugin);
     }
 
@@ -555,14 +578,6 @@ export default class LedgerPlugin extends Plugin {
     // ─── EventBus ────────────────────────────────────────────────────────────
 
     private registerEventBusListeners() {
-        // Inject edit buttons when protyle content loads
-        this.eventBus.on("loaded-protyle-static", ({detail}: any) => {
-            this.injectEditButtons(detail?.protyle?.wysiwyg?.element);
-        });
-        this.eventBus.on("loaded-protyle-dynamic", ({detail}: any) => {
-            this.injectEditButtons(detail?.protyle?.wysiwyg?.element);
-        });
-
         // Right-click menu on transaction blocks
         this.eventBus.on("open-menu-content", ({detail}: any) => {
             const blockEl = detail?.element as HTMLElement | undefined;
@@ -599,13 +614,53 @@ export default class LedgerPlugin extends Plugin {
         });
     }
 
+    // ─── Transaction block DOM injection ────────────────────────────────────
+
     /**
-     * Scan a protyle wysiwyg element for transaction blocks and inject an
-     * edit button in the upper-right corner of each one.
+     * Set up a MutationObserver to inject edit buttons into transaction blocks
+     * whenever new DOM nodes appear. This replaces the unreliable
+     * loaded-protyle-static/dynamic EventBus events.
      */
-    private injectEditButtons(container: HTMLElement | undefined) {
-        if (!container) return;
-        const blocks = container.querySelectorAll<HTMLElement>(
+    private setupTransactionBlockObserver() {
+        this.txBlockObserver = new MutationObserver(() => {
+            if (this.txObserverDebounceTimer) clearTimeout(this.txObserverDebounceTimer);
+            this.txObserverDebounceTimer = setTimeout(() => this.injectEditButtonsGlobal(), 200);
+        });
+        this.txBlockObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+        });
+        // Run once immediately for any blocks already on screen
+        this.injectEditButtonsGlobal();
+    }
+
+    /**
+     * Set up a global double-click handler on transaction blocks to open the
+     * edit dialog. Works regardless of whether the edit button was injected.
+     */
+    private setupDblClickHandler() {
+        this.boundDblClickHandler = (e: MouseEvent) => {
+            const target = e.target as HTMLElement | null;
+            if (!target) return;
+            const block = target.closest?.<HTMLElement>(
+                `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
+            );
+            if (!block) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const blockId = block.dataset.nodeId
+                || block.closest("[data-node-id]")?.getAttribute("data-node-id");
+            if (blockId) this.openEditTransactionById(blockId);
+        };
+        document.addEventListener("dblclick", this.boundDblClickHandler);
+    }
+
+    /**
+     * Scan the entire document for transaction blocks and inject an edit
+     * button in the upper-right corner of each one (idempotent).
+     */
+    private injectEditButtonsGlobal() {
+        const blocks = document.querySelectorAll<HTMLElement>(
             `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
         );
         for (const block of blocks) {

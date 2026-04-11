@@ -10,6 +10,7 @@
   font-family: var(--b3-font-family-code);
   font-size: 13px;
   background: rgba(var(--b3-theme-primary-light-rgb, 59, 130, 246), 0.04);
+  cursor: pointer; // hint double-click to edit
 }
 
 // Expense — red tint
