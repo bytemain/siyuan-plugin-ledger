@@ -131,7 +131,7 @@ export default class LedgerPlugin extends Plugin {
         // Refresh cache on startup (non-blocking)
         this.dataService.refreshCache().then(() => {
             this.savePersistedCache();
-            if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+            this.refreshStatusBar();
         }).catch(e => console.warn("[Ledger] cache refresh failed:", e));
     }
 
@@ -385,7 +385,7 @@ export default class LedgerPlugin extends Plugin {
             container.innerHTML = "<div style=\"padding:20px;text-align:center\">Loading\u2026</div>";
             await this.dataService.refreshCache();
             await this.savePersistedCache();
-            if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+            this.refreshStatusBar();
             this.renderDashboard(container);
         });
     }
@@ -520,7 +520,7 @@ export default class LedgerPlugin extends Plugin {
         element.querySelector("#ledger-dock-refresh")?.addEventListener("click", async () => {
             await this.dataService.refreshCache();
             await this.savePersistedCache();
-            if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+            this.refreshStatusBar();
             element.innerHTML = this.buildDockHTML();
             this.attachDockEvents(element);
         });
@@ -881,7 +881,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
-                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+                this.refreshStatusBar();
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -901,7 +901,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
-                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+                this.refreshStatusBar();
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -921,7 +921,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
-                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+                this.refreshStatusBar();
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -940,7 +940,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
-                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+                this.refreshStatusBar();
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -962,7 +962,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
-                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+                this.refreshStatusBar();
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -984,7 +984,7 @@ export default class LedgerPlugin extends Plugin {
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
-                if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+                this.refreshStatusBar();
                 if (slashBlockId) this.removeSlashBlock(slashBlockId);
             },
         });
@@ -1045,7 +1045,7 @@ export default class LedgerPlugin extends Plugin {
                     }
                     await this.dataService.refreshCache();
                     await this.savePersistedCache();
-                    if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+                    this.refreshStatusBar();
                     showMessage(`[Ledger] ${this.i18n.importSuccess}: ${txns.length} ${this.i18n.transactions}`);
                 } catch (e) {
                     console.error("[SiYuan Ledger] import failed:", e);
@@ -1131,6 +1131,10 @@ export default class LedgerPlugin extends Plugin {
     }
 
     // ─── Status bar ──────────────────────────────────────────────────────────
+
+    private refreshStatusBar() {
+        if (this.statusBarElement) this.updateStatusBar(this.statusBarElement);
+    }
 
     private updateStatusBar(el: HTMLElement) {
         const cache = this.dataService.getCache();
