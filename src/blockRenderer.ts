@@ -242,7 +242,7 @@ export function buildHTMLBlockDOM(
     const nodeId = blockId || "";
 
     // Zero-width space used by Lute in protyle DOM
-    const zwsp = "\u200b";
+    const zeroWidthSpace = "\u200b";
 
     return `<div data-node-id="${nodeId}" data-type="NodeHTMLBlock" class="render-node" data-subtype="block">`
         + '<div class="protyle-icons">'
@@ -251,8 +251,8 @@ export function buildHTMLBlockDOM(
         + "</div>"
         + "<div>"
         + `<protyle-html data-content="${escapedContent}"></protyle-html>`
-        + `<span style="position: absolute">${zwsp}</span>`
+        + `<span style="position: absolute">${zeroWidthSpace}</span>`
         + "</div>"
-        + `<div class="protyle-attr" contenteditable="false">${zwsp}</div>`
+        + `<div class="protyle-attr" contenteditable="false">${zeroWidthSpace}</div>`
         + "</div>";
 }
