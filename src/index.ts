@@ -44,7 +44,6 @@ import {openImportExportDialog} from "./importExportDialog";
 import {openAccountManagerDialog} from "./accountManagerDialog";
 import {buildDashboardHTML} from "./dashboard";
 import {exportToLedger, exportToBeancount, exportToCSV, downloadFile} from "./exportService";
-import {renderTransactionBlocks} from "./blockRenderer";
 
 export default class LedgerPlugin extends Plugin {
 
@@ -53,11 +52,8 @@ export default class LedgerPlugin extends Plugin {
     private topBarElement: HTMLElement | null = null;
     private statusBarElement: HTMLElement | null = null;
 
-    /** MutationObserver for injecting edit buttons into transaction blocks */
-    private txBlockObserver: MutationObserver | null = null;
-    /** Debounce timer for MutationObserver callback */
-    private txObserverDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     /** Bound handler refs for cleanup */
+    private boundClickHandler: ((e: MouseEvent) => void) | null = null;
     private boundDblClickHandler: ((e: MouseEvent) => void) | null = null;
 
     // ─── Lifecycle ───────────────────────────────────────────────────────────
@@ -73,6 +69,9 @@ export default class LedgerPlugin extends Plugin {
 
         // Load persisted data
         await this.loadPersistedData();
+
+        // Pass i18n to DataService for HTML block generation
+        this.dataService.setI18n(this.i18n);
 
         // Register commands
         this.registerCommands();
@@ -92,8 +91,8 @@ export default class LedgerPlugin extends Plugin {
         // Register EventBus listeners
         this.registerEventBusListeners();
 
-        // MutationObserver: inject edit buttons whenever new transaction blocks appear
-        this.setupTransactionBlockObserver();
+        // Global click handler for edit/delete buttons inside HTML block shadow DOM
+        this.setupCardButtonHandler();
 
         // Double-click on transaction blocks to edit
         this.setupDblClickHandler();
@@ -137,11 +136,9 @@ export default class LedgerPlugin extends Plugin {
     }
 
     onunload() {
-        this.txBlockObserver?.disconnect();
-        this.txBlockObserver = null;
-        if (this.txObserverDebounceTimer) {
-            clearTimeout(this.txObserverDebounceTimer);
-            this.txObserverDebounceTimer = null;
+        if (this.boundClickHandler) {
+            document.removeEventListener("click", this.boundClickHandler, true);
+            this.boundClickHandler = null;
         }
         if (this.boundDblClickHandler) {
             document.removeEventListener("dblclick", this.boundDblClickHandler);
@@ -615,36 +612,62 @@ export default class LedgerPlugin extends Plugin {
         });
     }
 
-    // ─── Transaction block custom HTML rendering ──────────────────────────────
+    // ─── Transaction block interaction handlers ─────────────────────────────
 
     /**
-     * Set up a MutationObserver to render transaction blocks as custom HTML
-     * cards whenever new DOM nodes appear. This replaces the unreliable
-     * loaded-protyle-static/dynamic EventBus events.
+     * Global click handler that uses composedPath() to detect edit/delete
+     * button clicks inside HTML block shadow DOM. Since SiYuan renders HTML
+     * blocks in a shadow root, regular event delegation won't see the buttons.
+     * composedPath() crosses shadow boundaries and lets us find the buttons.
      */
-    private setupTransactionBlockObserver() {
-        this.txBlockObserver = new MutationObserver(() => {
-            if (this.txObserverDebounceTimer) clearTimeout(this.txObserverDebounceTimer);
-            this.txObserverDebounceTimer = setTimeout(() => this.renderTransactionCards(), 200);
-        });
-        this.txBlockObserver.observe(document.body, {
-            childList: true,
-            subtree: true,
-        });
-        // Run once immediately for any blocks already on screen
-        this.renderTransactionCards();
+    private setupCardButtonHandler() {
+        this.boundClickHandler = (e: MouseEvent) => {
+            const path = e.composedPath() as HTMLElement[];
+
+            // Find the action button in the composed path
+            const actionBtn = path.find(
+                el => el?.dataset?.action === "edit" || el?.dataset?.action === "delete",
+            );
+            if (!actionBtn) return;
+
+            const action = actionBtn.dataset.action;
+
+            // Find the block element (with custom-ledger-type attribute) in the path
+            const blockEl = path.find(
+                el => el?.getAttribute?.(ATTR_TYPE) === TRANSACTION_TYPE_VALUE,
+            );
+            if (!blockEl) return;
+
+            const blockId = blockEl.dataset?.nodeId
+                || blockEl.getAttribute?.("data-node-id")
+                || "";
+            if (!blockId) return;
+
+            e.stopPropagation();
+            e.preventDefault();
+
+            if (action === "edit") {
+                this.openEditTransactionById(blockId);
+            } else if (action === "delete") {
+                confirm("\u26a0\ufe0f", this.i18n.confirmDeleteTx, () => {
+                    this.dataService.deleteTransaction(blockId).then(() => {
+                        showMessage("[Ledger] " + this.i18n.txDeleted);
+                    });
+                });
+            }
+        };
+        // Use capture phase to intercept before shadow DOM stops propagation
+        document.addEventListener("click", this.boundClickHandler, true);
     }
 
     /**
      * Set up a global double-click handler on transaction blocks to open the
-     * edit dialog. Works regardless of whether the card was rendered.
+     * edit dialog. Works on the block container element (outside shadow DOM).
      */
     private setupDblClickHandler() {
         this.boundDblClickHandler = (e: MouseEvent) => {
             const target = e.target as HTMLElement | null;
             if (!target) return;
-            // Don't trigger on button clicks
-            if (target.closest(".ledger-card-btn")) return;
             const block = target.closest?.<HTMLElement>(
                 `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
             );
@@ -656,28 +679,6 @@ export default class LedgerPlugin extends Plugin {
             if (blockId) this.openEditTransactionById(blockId);
         };
         document.addEventListener("dblclick", this.boundDblClickHandler);
-    }
-
-    /**
-     * Render all unrendered transaction blocks as custom HTML cards with
-     * inline edit/delete buttons.
-     */
-    private renderTransactionCards() {
-        const config = this.dataService.getConfig();
-        const i18n = this.i18n;
-
-        renderTransactionBlocks(
-            config,
-            i18n,
-            (blockId: string) => this.openEditTransactionById(blockId),
-            (blockId: string) => {
-                confirm("\u26a0\ufe0f", i18n.confirmDeleteTx, () => {
-                    this.dataService.deleteTransaction(blockId).then(() => {
-                        showMessage("[Ledger] " + i18n.txDeleted);
-                    });
-                });
-            },
-        );
     }
 
     private openEditTransactionById(blockId: string) {

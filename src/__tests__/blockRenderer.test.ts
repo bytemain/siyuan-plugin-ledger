@@ -1,7 +1,7 @@
 import {describe, it, expect} from "vitest";
-import {buildTransactionCardHTML} from "../blockRenderer";
+import {buildTransactionCardHTML, buildHTMLBlockContent, buildHTMLBlockDOM} from "../blockRenderer";
 import {DEFAULT_CONFIG} from "../types";
-import type {IPosting} from "../types";
+import type {IPosting, ITransaction} from "../types";
 
 const i18n: Record<string, string> = {
     cleared: "已确认",
@@ -150,5 +150,82 @@ describe("buildTransactionCardHTML", () => {
             usdPostings, [], DEFAULT_CONFIG, i18n,
         );
         expect(html).toContain("$10.00");
+    });
+});
+
+// ─── buildHTMLBlockContent ───────────────────────────────────────────────────
+
+describe("buildHTMLBlockContent", () => {
+    const tx: ITransaction = {
+        blockId: "block-1",
+        uuid: "uuid-1",
+        date: "2024-03-15",
+        status: "cleared",
+        payee: "Coffee Shop",
+        narration: "Latte",
+        postings: [
+            {account: "Expenses:Food", amount: 5, currency: "CNY"},
+            {account: "Assets:Cash", amount: -5, currency: "CNY"},
+        ],
+        tags: ["coffee"],
+    };
+
+    it("includes embedded <style> block with card CSS", () => {
+        const html = buildHTMLBlockContent(tx, DEFAULT_CONFIG, i18n);
+        expect(html).toContain("<style>");
+        expect(html).toContain("ledger-tx-card");
+        expect(html).toContain("ledger-card--expense");
+    });
+
+    it("includes the card HTML after the style block", () => {
+        const html = buildHTMLBlockContent(tx, DEFAULT_CONFIG, i18n);
+        expect(html).toContain("Coffee Shop");
+        expect(html).toContain("¥5.00");
+        expect(html).toContain("coffee");
+    });
+});
+
+// ─── buildHTMLBlockDOM ───────────────────────────────────────────────────────
+
+describe("buildHTMLBlockDOM", () => {
+    const tx: ITransaction = {
+        blockId: "block-1",
+        uuid: "uuid-1",
+        date: "2024-03-15",
+        status: "cleared",
+        payee: "Test",
+        narration: "",
+        postings: [
+            {account: "Expenses:Food", amount: 10, currency: "CNY"},
+            {account: "Assets:Bank", amount: -10, currency: "CNY"},
+        ],
+        tags: [],
+    };
+
+    it("wraps content in NodeHTMLBlock DOM structure", () => {
+        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
+        expect(dom).toContain('data-type="NodeHTMLBlock"');
+        expect(dom).toContain("render-node");
+        expect(dom).toContain("protyle-html");
+        expect(dom).toContain("data-content=");
+        expect(dom).toContain("protyle-attr");
+    });
+
+    it("HTML-escapes the content for the data-content attribute", () => {
+        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
+        // The data-content attribute should contain HTML-escaped content
+        // e.g., <style> becomes &lt;style&gt;
+        expect(dom).toContain("&lt;style&gt;");
+        expect(dom).toContain("&lt;div");
+    });
+
+    it("escapes content safely to prevent attribute injection", () => {
+        const maliciousTx: ITransaction = {
+            ...tx,
+            payee: 'Test" onload="alert(1)',
+        };
+        const dom = buildHTMLBlockDOM(maliciousTx, DEFAULT_CONFIG, i18n);
+        // The quote should be double-escaped so it can't break out of data-content
+        expect(dom).not.toContain('onload="alert');
     });
 });

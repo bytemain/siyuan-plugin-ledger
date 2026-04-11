@@ -21,6 +21,7 @@ import {
     DEFAULT_CONFIG,
 } from "./types";
 import {DEFAULT_ACCOUNTS} from "./defaultAccounts";
+import {buildHTMLBlockDOM} from "./blockRenderer";
 
 // ─── IAL helper ──────────────────────────────────────────────────────────────
 
@@ -174,6 +175,7 @@ export function generateUUID(): string {
 export class DataService {
     private config: ILedgerConfig = DEFAULT_CONFIG;
     private accounts: IAccount[] = DEFAULT_ACCOUNTS;
+    private i18n: Record<string, string> = {};
     private cache: ILedgerCache = {
         lastQueryTime: 0,
         accountBalances: {},
@@ -210,6 +212,10 @@ export class DataService {
         this.cache = c;
     }
 
+    setI18n(i18n: Record<string, string>) {
+        this.i18n = i18n;
+    }
+
     // ─── Validation ─────────────────────────────────────────────────────
 
     /**
@@ -239,9 +245,9 @@ export class DataService {
     // ─── Insert / Update / Delete ────────────────────────────────────────
 
     /**
-     * Insert a new transaction block at the current protyle cursor position.
-     * protyleId  – the block ID to insert after (nextID)
-     * previousID – block ID before which to insert (or empty for end)
+     * Insert a new transaction block as a native SiYuan HTML block.
+     * parentID   – the parent block to insert into
+     * previousID – block ID after which to insert (or empty for end)
      */
     async insertTransaction(
         tx: Omit<ITransaction, "blockId">,
@@ -252,14 +258,14 @@ export class DataService {
         const uuid = tx.uuid || generateUUID();
         const fullTx: ITransaction = {...tx, blockId: "", uuid};
 
-        const content = buildBlockContent(fullTx, this.config);
+        const domContent = buildHTMLBlockDOM(fullTx, this.config, this.i18n);
 
         return new Promise((resolve, reject) => {
             fetchPost(
                 "/api/block/insertBlock",
                 {
-                    dataType: "markdown",
-                    data: content,
+                    dataType: "dom",
+                    data: domContent,
                     parentID,
                     previousID,
                 },
@@ -284,14 +290,14 @@ export class DataService {
     }
 
     async updateTransaction(tx: ITransaction): Promise<void> {
-        const content = buildBlockContent(tx, this.config);
+        const domContent = buildHTMLBlockDOM(tx, this.config, this.i18n);
 
         await new Promise<void>((resolve, reject) => {
             fetchPost(
                 "/api/block/updateBlock",
                 {
-                    dataType: "markdown",
-                    data: content,
+                    dataType: "dom",
+                    data: domContent,
                     id: tx.blockId,
                 },
                 (res) => (res.code === 0 ? resolve() : reject(new Error(res.msg))),

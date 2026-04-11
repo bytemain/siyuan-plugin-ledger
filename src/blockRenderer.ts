@@ -1,39 +1,27 @@
 /**
- * Block renderer — renders transaction blocks as custom HTML cards.
+ * Block renderer — builds transaction blocks as native SiYuan HTML blocks.
  *
- * Instead of displaying raw markdown text, the plugin overlays a rich HTML
- * card on each transaction block. The card includes:
- * - Visual layout: date, status, payee, amount, postings, tags
+ * Transactions are stored as SiYuan `NodeHTMLBlock` blocks. The block content
+ * is a self-contained HTML card with embedded CSS (for shadow DOM rendering).
+ *
+ * Card features:
+ * - Visual layout: date, status badge, payee, total amount, postings, tags
  * - Inline edit (✏️) and delete (🗑️) buttons
  * - Color-coded border/background by transaction type
- *
- * Data source: custom-ledger-* block attributes on the DOM element.
- * The underlying markdown content is hidden but preserved for fallback.
+ * - All styles embedded via <style> block (required for shadow DOM isolation)
  */
 import {
     IPosting,
+    ITransaction,
     ILedgerConfig,
-    ATTR_TYPE,
-    ATTR_DATE,
-    ATTR_STATUS,
-    ATTR_PAYEE,
-    ATTR_NARRATION,
-    ATTR_POSTINGS,
-    ATTR_TAGS,
-    TRANSACTION_TYPE_VALUE,
 } from "./types";
 
-// ─── HTML builder ────────────────────────────────────────────────────────────
-
-/** CSS class applied to rendered card containers */
-const CARD_CLASS = "ledger-tx-card";
-/** Marker attribute to avoid re-rendering */
-const RENDERED_ATTR = "data-ledger-rendered";
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
  * Escape HTML special characters to prevent XSS when building card HTML.
  */
-function escapeHTML(str: string): string {
+export function escapeHTML(str: string): string {
     return str
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -53,8 +41,51 @@ function detectTxType(postings: IPosting[]): "expense" | "income" | "transfer" {
     return "transfer";
 }
 
+// ─── Embedded CSS ────────────────────────────────────────────────────────────
+// These styles are injected into the HTML block content as an inline <style>.
+// This is necessary because SiYuan renders HTML blocks inside a shadow DOM,
+// so external plugin stylesheets do not apply.
+
+function getCardCSS(): string {
+    return `
+.ledger-tx-card{border-left:3px solid var(--b3-theme-primary,#4a90d9);border-radius:6px;background:rgba(59,130,246,.04);padding:8px 12px;font-family:var(--b3-font-family,system-ui,sans-serif);font-size:13px;line-height:1.5;transition:box-shadow .15s ease}
+.ledger-tx-card:hover{box-shadow:0 1px 6px rgba(0,0,0,.08)}
+.ledger-card--expense{border-left-color:#e74c3c;background:rgba(231,76,60,.04)}
+.ledger-card--income{border-left-color:#2ecc71;background:rgba(46,204,113,.04)}
+.ledger-card--transfer{border-left-color:#3498db;background:rgba(52,152,219,.04)}
+.ledger-card-header{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ledger-card-date{font-size:12px;color:var(--b3-theme-on-surface-muted,#888);white-space:nowrap}
+.ledger-card-status{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:700;flex-shrink:0}
+.ledger-card-status--cleared{background:rgba(46,204,113,.15);color:#27ae60}
+.ledger-card-status--pending{background:rgba(241,196,15,.15);color:#f39c12}
+.ledger-card-status--uncleared{background:rgba(149,165,166,.15);color:#7f8c8d}
+.ledger-card-payee{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ledger-card-amount{font-family:var(--b3-font-family-code,monospace);font-weight:700;font-size:14px;white-space:nowrap}
+.ledger-card-amount--expense{color:#e74c3c}
+.ledger-card-amount--income{color:#2ecc71}
+.ledger-card-amount--transfer{color:#3498db}
+.ledger-card-actions{display:flex;gap:2px;flex-shrink:0;opacity:0;transition:opacity .15s ease}
+.ledger-tx-card:hover .ledger-card-actions{opacity:1}
+.ledger-card-btn{width:26px;height:26px;padding:0;border:none;border-radius:4px;background:transparent;cursor:pointer;font-size:14px;line-height:26px;text-align:center;transition:background .12s ease}
+.ledger-card-btn:hover{background:rgba(0,0,0,.06)}
+.ledger-card-btn--delete:hover{background:rgba(231,76,60,.12)}
+.ledger-card-body{margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.06)}
+.ledger-card-posting{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px}
+.ledger-card-posting-icon{flex-shrink:0;font-size:12px}
+.ledger-card-posting-account{flex:1;font-family:var(--b3-font-family-code,monospace);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ledger-card-posting-amount{font-family:var(--b3-font-family-code,monospace);font-size:12px;font-weight:500;white-space:nowrap}
+.ledger-card-footer{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}
+.ledger-card-footer:empty{display:none}
+.ledger-card-narration{font-size:11px;color:var(--b3-theme-on-surface-muted,#888);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%}
+.ledger-card-tags{display:flex;align-items:center;gap:4px;font-size:11px}
+.ledger-card-tag{display:inline-block;background:rgba(59,130,246,.08);color:var(--b3-theme-primary,#4a90d9);border-radius:3px;padding:0 5px;font-size:10px;line-height:1.7}
+`;
+}
+
+// ─── Card HTML builder ───────────────────────────────────────────────────────
+
 /**
- * Build the HTML string for a transaction card.
+ * Build the HTML string for a transaction card (inner content only).
  */
 export function buildTransactionCardHTML(
     date: string,
@@ -114,7 +145,7 @@ export function buildTransactionCardHTML(
         ? `<span class="ledger-card-narration" title="${escapeHTML(narration)}">${escapeHTML(narration)}</span>`
         : "";
 
-    return `<div class="${CARD_CLASS} ledger-card--${txType}">
+    return `<div class="ledger-tx-card ledger-card--${txType}">
   <div class="ledger-card-header">
     <span class="ledger-card-date">📅 ${escapeHTML(date)}</span>
     <span class="ledger-card-status ledger-card-status--${status}" title="${escapeHTML(statusLabel)}">${statusIcon}</span>
@@ -135,103 +166,39 @@ export function buildTransactionCardHTML(
 </div>`;
 }
 
-// ─── DOM rendering ───────────────────────────────────────────────────────────
+// ─── Full HTML block content ─────────────────────────────────────────────────
 
 /**
- * Render all unrendered transaction blocks in the document.
- *
- * For each block with `custom-ledger-type="transaction"` that hasn't been
- * rendered yet (no `data-ledger-rendered` marker), this function:
- * 1. Reads transaction data from the block's DOM attributes
- * 2. Builds a rich HTML card
- * 3. Inserts the card into the block and hides the original markdown text
- * 4. Attaches click handlers for the edit/delete buttons
- *
- * @param config - Current plugin configuration
- * @param i18n - Localisation strings
- * @param onEdit - Callback when edit is clicked, receives blockId
- * @param onDelete - Callback when delete is clicked, receives blockId
+ * Build the complete HTML content for a transaction HTML block.
+ * Includes embedded <style> for shadow DOM isolation and the card HTML.
  */
-export function renderTransactionBlocks(
+export function buildHTMLBlockContent(
+    tx: ITransaction,
     config: ILedgerConfig,
     i18n: Record<string, string>,
-    onEdit: (blockId: string) => void,
-    onDelete: (blockId: string) => void,
-): void {
-    const blocks = document.querySelectorAll<HTMLElement>(
-        `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
+): string {
+    const tags = tx.tags || [];
+    const cardHTML = buildTransactionCardHTML(
+        tx.date, tx.status, tx.payee, tx.narration || "",
+        tx.postings, tags, config, i18n,
     );
+    return `<style>${getCardCSS()}</style>${cardHTML}`;
+}
 
-    for (const block of blocks) {
-        // Skip already-rendered blocks
-        if (block.getAttribute(RENDERED_ATTR) === "true") continue;
+/**
+ * Build the full SiYuan DOM string for inserting a NodeHTMLBlock via the API.
+ *
+ * SiYuan HTML blocks use a <protyle-html data-content="..."> element where
+ * the HTML content is stored as an HTML-escaped string in the data-content
+ * attribute. SiYuan renders this inside a shadow DOM.
+ */
+export function buildHTMLBlockDOM(
+    tx: ITransaction,
+    config: ILedgerConfig,
+    i18n: Record<string, string>,
+): string {
+    const htmlContent = buildHTMLBlockContent(tx, config, i18n);
+    const escapedContent = escapeHTML(htmlContent);
 
-        // Read transaction data from DOM attributes
-        const date = block.getAttribute(ATTR_DATE) || "";
-        const status = block.getAttribute(ATTR_STATUS) || "uncleared";
-        const payee = block.getAttribute(ATTR_PAYEE) || "";
-        const narration = block.getAttribute(ATTR_NARRATION) || "";
-        const tagsRaw = block.getAttribute(ATTR_TAGS) || "";
-
-        let postings: IPosting[] = [];
-        try {
-            postings = JSON.parse(block.getAttribute(ATTR_POSTINGS) || "[]");
-        } catch {
-            // If postings can't be parsed, skip rendering
-            continue;
-        }
-        if (postings.length === 0) continue;
-
-        const tags = tagsRaw ? tagsRaw.split(",").map(t => t.trim()).filter(Boolean) : [];
-
-        // Build the card HTML
-        const cardHTML = buildTransactionCardHTML(
-            date, status, payee, narration, postings, tags, config, i18n,
-        );
-
-        // Hide original markdown content (the contenteditable child)
-        const contentEl = block.querySelector<HTMLElement>("[contenteditable]");
-        if (contentEl) {
-            contentEl.classList.add("ledger-card-original-hidden");
-        }
-
-        // Insert card before the protyle-attr div (or at the end)
-        const attrEl = block.querySelector(".protyle-attr");
-        const cardContainer = document.createElement("div");
-        cardContainer.className = "ledger-card-container";
-        cardContainer.innerHTML = cardHTML;
-
-        if (attrEl) {
-            block.insertBefore(cardContainer, attrEl);
-        } else {
-            block.appendChild(cardContainer);
-        }
-
-        // Mark as rendered
-        block.setAttribute(RENDERED_ATTR, "true");
-
-        // Resolve blockId
-        const blockId = block.dataset.nodeId
-            || block.closest("[data-node-id]")?.getAttribute("data-node-id")
-            || "";
-
-        // Attach button handlers
-        const editBtn = cardContainer.querySelector<HTMLElement>('[data-action="edit"]');
-        const deleteBtn = cardContainer.querySelector<HTMLElement>('[data-action="delete"]');
-
-        if (editBtn && blockId) {
-            editBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                onEdit(blockId);
-            });
-        }
-        if (deleteBtn && blockId) {
-            deleteBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                onDelete(blockId);
-            });
-        }
-    }
+    return `<div data-type="NodeHTMLBlock" class="render-node"><div class="protyle-action__language" contenteditable="false">HTML</div><div><protyle-html data-content="${escapedContent}"></protyle-html><span style="position: absolute">​</span></div><div class="protyle-attr" contenteditable="false"></div></div>`;
 }
