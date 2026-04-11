@@ -76,19 +76,22 @@ export function buildTransactionCardHTML(
     const currency = postings[0]?.currency || config.defaultCurrency;
 
     // Status badge
-    const statusIcon = status === "cleared" ? "✓" : status === "pending" ? "?" : "~";
-    const statusLabel = status === "cleared"
-        ? (i18n.cleared || "Cleared")
-        : status === "pending"
-            ? (i18n.pending || "Pending")
-            : (i18n.uncleared || "Uncleared");
+    const statusIconMap: Record<string, string> = {cleared: "✓", pending: "?", uncleared: "~"};
+    const statusIcon = statusIconMap[status] || "~";
+    const statusLabelMap: Record<string, string> = {
+        cleared: i18n.cleared || "Cleared",
+        pending: i18n.pending || "Pending",
+        uncleared: i18n.uncleared || "Uncleared",
+    };
+    const statusLabel = statusLabelMap[status] || statusLabelMap.uncleared;
 
     // Amount color class
-    const amountClass = txType === "income"
-        ? "ledger-card-amount--income"
-        : txType === "expense"
-            ? "ledger-card-amount--expense"
-            : "ledger-card-amount--transfer";
+    const amountClassMap: Record<string, string> = {
+        income: "ledger-card-amount--income",
+        expense: "ledger-card-amount--expense",
+        transfer: "ledger-card-amount--transfer",
+    };
+    const amountClass = amountClassMap[txType];
 
     // Posting rows
     const postingRows = postings.map(p => {
