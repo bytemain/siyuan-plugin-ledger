@@ -638,6 +638,9 @@ export default class LedgerPlugin extends Plugin {
             );
             if (!blockEl) return;
 
+            // dataset.nodeId uses camelCase conversion, getAttribute uses the raw
+            // attribute name. Both are checked because SiYuan may use either
+            // "data-node-id" or the parsed dataset depending on rendering path.
             const blockId = blockEl.dataset?.nodeId
                 || blockEl.getAttribute?.("data-node-id")
                 || "";
