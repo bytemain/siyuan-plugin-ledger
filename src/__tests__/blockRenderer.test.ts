@@ -1,5 +1,5 @@
 import {describe, it, expect} from "vitest";
-import {buildTransactionCardHTML, buildHTMLBlockContent} from "../blockRenderer";
+import {buildTransactionCardHTML, buildHTMLBlockContent, buildHTMLBlockDOM} from "../blockRenderer";
 import {DEFAULT_CONFIG} from "../types";
 import type {IPosting, ITransaction} from "../types";
 
@@ -207,5 +207,67 @@ describe("buildHTMLBlockContent", () => {
         const html = buildHTMLBlockContent(maliciousTx, DEFAULT_CONFIG, i18n);
         expect(html).not.toContain("<script>");
         expect(html).toContain("&lt;script&gt;");
+    });
+});
+
+// ─── buildHTMLBlockDOM ───────────────────────────────────────────────────────
+
+describe("buildHTMLBlockDOM", () => {
+    const tx: ITransaction = {
+        blockId: "20240315120000-abcdefg",
+        uuid: "uuid-1",
+        date: "2024-03-15",
+        status: "cleared",
+        payee: "Coffee Shop",
+        narration: "Latte",
+        postings: [
+            {account: "Expenses:Food", amount: 5, currency: "CNY"},
+            {account: "Assets:Cash", amount: -5, currency: "CNY"},
+        ],
+        tags: ["coffee"],
+    };
+
+    it("produces valid NodeHTMLBlock protyle DOM structure", () => {
+        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
+        expect(dom).toContain('data-type="NodeHTMLBlock"');
+        expect(dom).toContain('class="render-node"');
+        expect(dom).toContain('data-subtype="block"');
+    });
+
+    it("includes protyle-icons div", () => {
+        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
+        expect(dom).toContain('class="protyle-icons"');
+        expect(dom).toContain("protyle-action__edit");
+        expect(dom).toContain("protyle-action__menu");
+    });
+
+    it("includes protyle-html element with escaped data-content", () => {
+        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
+        expect(dom).toContain("<protyle-html");
+        expect(dom).toContain("data-content=");
+        // Content should be HTML-escaped (< becomes &lt; etc.)
+        expect(dom).toContain("&lt;div class=&quot;ledger-tx-wrapper&quot;&gt;");
+    });
+
+    it("includes protyle-attr div", () => {
+        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
+        expect(dom).toContain('class="protyle-attr"');
+        expect(dom).toContain('contenteditable="false"');
+    });
+
+    it("uses empty data-node-id for insert (no blockId provided)", () => {
+        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
+        // When no blockId argument, data-node-id is empty
+        expect(dom).toContain('data-node-id=""');
+    });
+
+    it("uses provided blockId in data-node-id for updates", () => {
+        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n, "20240315120000-abcdefg");
+        expect(dom).toContain('data-node-id="20240315120000-abcdefg"');
+    });
+
+    it("contains zero-width spaces (\\u200b) matching Lute output", () => {
+        const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
+        expect(dom).toContain("\u200b");
     });
 });

@@ -21,7 +21,7 @@ import {
     DEFAULT_CONFIG,
 } from "./types";
 import {DEFAULT_ACCOUNTS} from "./defaultAccounts";
-import {buildHTMLBlockContent} from "./blockRenderer";
+import {buildHTMLBlockDOM} from "./blockRenderer";
 
 // ─── IAL helper ──────────────────────────────────────────────────────────────
 
@@ -258,14 +258,14 @@ export class DataService {
         const uuid = tx.uuid || generateUUID();
         const fullTx: ITransaction = {...tx, blockId: "", uuid};
 
-        const htmlContent = buildHTMLBlockContent(fullTx, this.config, this.i18n);
+        const domContent = buildHTMLBlockDOM(fullTx, this.config, this.i18n);
 
         return new Promise((resolve, reject) => {
             fetchPost(
                 "/api/block/insertBlock",
                 {
-                    dataType: "markdown",
-                    data: htmlContent,
+                    dataType: "dom",
+                    data: domContent,
                     parentID,
                     previousID,
                 },
@@ -282,24 +282,6 @@ export class DataService {
                     fullTx.blockId = blockId;
                     this.setTransactionAttrs(blockId, fullTx).then(() => {
                         this.updateCacheAfterInsert(fullTx);
-
-                        // Force the protyle to re-render the block as a proper
-                        // HTML block with shadow DOM. After insertBlock, the
-                        // protyle may not have fully initialised the <protyle-html>
-                        // element yet; updating with the same content forces it to
-                        // create the correct DOM structure. This is non-blocking.
-                        setTimeout(() => {
-                            fetchPost(
-                                "/api/block/updateBlock",
-                                {
-                                    dataType: "markdown",
-                                    data: htmlContent,
-                                    id: blockId,
-                                },
-                                () => { /* fire-and-forget */ },
-                            );
-                        }, 200);
-
                         resolve(blockId);
                     }).catch(reject);
                 },
@@ -308,14 +290,14 @@ export class DataService {
     }
 
     async updateTransaction(tx: ITransaction): Promise<void> {
-        const htmlContent = buildHTMLBlockContent(tx, this.config, this.i18n);
+        const domContent = buildHTMLBlockDOM(tx, this.config, this.i18n, tx.blockId);
 
         await new Promise<void>((resolve, reject) => {
             fetchPost(
                 "/api/block/updateBlock",
                 {
-                    dataType: "markdown",
-                    data: htmlContent,
+                    dataType: "dom",
+                    data: domContent,
                     id: tx.blockId,
                 },
                 (res) => (res.code === 0 ? resolve() : reject(new Error(res.msg))),

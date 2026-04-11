@@ -1,10 +1,10 @@
 /**
- * Block renderer — builds transaction HTML content for SiYuan HTML blocks.
+ * Block renderer — builds transaction blocks as native SiYuan HTML blocks.
  *
- * Transactions are inserted as SiYuan HTML blocks using `dataType: "markdown"`
- * with raw HTML content. SiYuan's Lute parser recognizes raw HTML starting with
- * block-level tags (like `<div>`) and creates a `NodeHTMLBlock` automatically.
- * The block content is then rendered inside a shadow DOM.
+ * Transactions are inserted as SiYuan `NodeHTMLBlock` blocks using
+ * `dataType: "dom"` with the exact protyle DOM structure that Lute produces.
+ * This avoids Lute markdown parsing and ensures the block is correctly
+ * rendered with shadow DOM on first insert.
  *
  * Card features:
  * - Visual layout: date, status badge, payee, total amount, postings, tags
@@ -192,15 +192,11 @@ export function buildTransactionCardHTML(
 // ─── Full HTML block content ─────────────────────────────────────────────────
 
 /**
- * Build the complete HTML content for a transaction HTML block.
+ * Build the raw HTML content for a transaction card with embedded styles.
  *
- * The content is wrapped in a single `<div>` container so Lute's HTML block
- * parser treats it as one block. The embedded `<style>` provides CSS for
- * shadow DOM rendering.
- *
- * Used as the `data` parameter with `dataType: "markdown"` in SiYuan's
- * insertBlock / updateBlock API. Lute recognises raw HTML starting with
- * `<div>` and creates a `NodeHTMLBlock` automatically.
+ * The content is wrapped in a single `<div>` container. The embedded `<style>`
+ * provides CSS for shadow DOM rendering. This is used as the `data-content`
+ * of the `<protyle-html>` element inside the HTML block DOM.
  */
 export function buildHTMLBlockContent(
     tx: ITransaction,
@@ -212,7 +208,51 @@ export function buildHTMLBlockContent(
         tx.date, tx.status, tx.payee, tx.narration || "",
         tx.postings, tags, config, i18n,
     );
-    // Wrap in a container <div> with embedded <style>.
-    // No blank lines — Lute ends an HTML block at a blank line.
     return `<div class="ledger-tx-wrapper"><style>${getCardCSS()}</style>${cardHTML}</div>`;
+}
+
+// ─── Protyle DOM builder ─────────────────────────────────────────────────────
+
+/**
+ * Build the protyle DOM string for a SiYuan `NodeHTMLBlock`.
+ *
+ * This produces the exact DOM structure that Lute's `renderHTMLBlock` generates,
+ * so it can be used with `dataType: "dom"` in SiYuan's insertBlock / updateBlock
+ * API. The structure is:
+ *
+ *   <div data-node-id="..." data-type="NodeHTMLBlock" class="render-node" data-subtype="block">
+ *     <div class="protyle-icons">…</div>
+ *     <div><protyle-html data-content="ESCAPED_HTML"></protyle-html>…</div>
+ *     <div class="protyle-attr" contenteditable="false">​</div>
+ *   </div>
+ *
+ * @param tx       Transaction data
+ * @param config   Ledger config (currency symbols etc.)
+ * @param i18n     Locale strings
+ * @param blockId  Existing block ID for updates; omit/empty for inserts
+ */
+export function buildHTMLBlockDOM(
+    tx: ITransaction,
+    config: ILedgerConfig,
+    i18n: Record<string, string>,
+    blockId?: string,
+): string {
+    const htmlContent = buildHTMLBlockContent(tx, config, i18n);
+    const escapedContent = escapeHTML(htmlContent);
+    const nodeId = blockId || "";
+
+    // Zero-width space used by Lute in protyle DOM
+    const zwsp = "\u200b";
+
+    return `<div data-node-id="${nodeId}" data-type="NodeHTMLBlock" class="render-node" data-subtype="block">`
+        + '<div class="protyle-icons">'
+        + '<span class="protyle-icon protyle-icon--first protyle-action__edit"><svg><use xlink:href="#iconEdit"></use></svg></span>'
+        + '<span class="protyle-icon protyle-action__menu protyle-icon--last"><svg><use xlink:href="#iconMore"></use></svg></span>'
+        + "</div>"
+        + "<div>"
+        + `<protyle-html data-content="${escapedContent}"></protyle-html>`
+        + `<span style="position: absolute">${zwsp}</span>`
+        + "</div>"
+        + `<div class="protyle-attr" contenteditable="false">${zwsp}</div>`
+        + "</div>";
 }
