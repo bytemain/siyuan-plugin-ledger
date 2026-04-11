@@ -44,6 +44,7 @@ import {openImportExportDialog} from "./importExportDialog";
 import {openAccountManagerDialog} from "./accountManagerDialog";
 import {buildDashboardHTML} from "./dashboard";
 import {exportToLedger, exportToBeancount, exportToCSV, downloadFile} from "./exportService";
+import {renderTransactionBlocks} from "./blockRenderer";
 
 export default class LedgerPlugin extends Plugin {
 
@@ -614,34 +615,36 @@ export default class LedgerPlugin extends Plugin {
         });
     }
 
-    // ─── Transaction block DOM injection ────────────────────────────────────
+    // ─── Transaction block custom HTML rendering ──────────────────────────────
 
     /**
-     * Set up a MutationObserver to inject edit buttons into transaction blocks
-     * whenever new DOM nodes appear. This replaces the unreliable
+     * Set up a MutationObserver to render transaction blocks as custom HTML
+     * cards whenever new DOM nodes appear. This replaces the unreliable
      * loaded-protyle-static/dynamic EventBus events.
      */
     private setupTransactionBlockObserver() {
         this.txBlockObserver = new MutationObserver(() => {
             if (this.txObserverDebounceTimer) clearTimeout(this.txObserverDebounceTimer);
-            this.txObserverDebounceTimer = setTimeout(() => this.injectEditButtonsGlobal(), 200);
+            this.txObserverDebounceTimer = setTimeout(() => this.renderTransactionCards(), 200);
         });
         this.txBlockObserver.observe(document.body, {
             childList: true,
             subtree: true,
         });
         // Run once immediately for any blocks already on screen
-        this.injectEditButtonsGlobal();
+        this.renderTransactionCards();
     }
 
     /**
      * Set up a global double-click handler on transaction blocks to open the
-     * edit dialog. Works regardless of whether the edit button was injected.
+     * edit dialog. Works regardless of whether the card was rendered.
      */
     private setupDblClickHandler() {
         this.boundDblClickHandler = (e: MouseEvent) => {
             const target = e.target as HTMLElement | null;
             if (!target) return;
+            // Don't trigger on button clicks
+            if (target.closest(".ledger-card-btn")) return;
             const block = target.closest?.<HTMLElement>(
                 `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
             );
@@ -656,30 +659,25 @@ export default class LedgerPlugin extends Plugin {
     }
 
     /**
-     * Scan the entire document for transaction blocks and inject an edit
-     * button in the upper-right corner of each one (idempotent).
+     * Render all unrendered transaction blocks as custom HTML cards with
+     * inline edit/delete buttons.
      */
-    private injectEditButtonsGlobal() {
-        const blocks = document.querySelectorAll<HTMLElement>(
-            `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
+    private renderTransactionCards() {
+        const config = this.dataService.getConfig();
+        const i18n = this.i18n;
+
+        renderTransactionBlocks(
+            config,
+            i18n,
+            (blockId: string) => this.openEditTransactionById(blockId),
+            (blockId: string) => {
+                confirm("\u26a0\ufe0f", i18n.confirmDeleteTx, () => {
+                    this.dataService.deleteTransaction(blockId).then(() => {
+                        showMessage("[Ledger] " + i18n.txDeleted);
+                    });
+                });
+            },
         );
-        for (const block of blocks) {
-            // Skip if we already injected a button
-            if (block.querySelector(".ledger-edit-btn")) continue;
-            block.classList.add("ledger-tx-has-edit");
-            const btn = document.createElement("button");
-            btn.className = "ledger-edit-btn";
-            btn.title = this.i18n.editTransaction;
-            btn.textContent = "✏️";
-            btn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                const blockId = block.dataset.nodeId
-                    || block.closest("[data-node-id]")?.getAttribute("data-node-id");
-                if (blockId) this.openEditTransactionById(blockId);
-            });
-            block.appendChild(btn);
-        }
     }
 
     private openEditTransactionById(blockId: string) {
