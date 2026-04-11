@@ -713,6 +713,18 @@ export default class LedgerPlugin extends Plugin {
                 });
             }
 
+            // Double-click on the card opens edit dialog.
+            // stopPropagation prevents SiYuan's native HTML-block editor from
+            // intercepting the event (composed dblclick crosses shadow boundary).
+            const card = shadowRoot.querySelector(".ledger-tx-card");
+            if (card && blockId) {
+                card.addEventListener("dblclick", (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    this.openEditTransactionById(blockId);
+                });
+            }
+
             // Mark as handled only after successfully processing
             block.dataset.ledgerHandled = "1";
         }

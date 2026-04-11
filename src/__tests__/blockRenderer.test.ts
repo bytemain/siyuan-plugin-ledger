@@ -241,12 +241,16 @@ describe("buildHTMLBlockDOM", () => {
         expect(dom).toContain("protyle-action__menu");
     });
 
-    it("includes protyle-html element with escaped data-content", () => {
+    it("includes protyle-html element with double-escaped data-content", () => {
         const dom = buildHTMLBlockDOM(tx, DEFAULT_CONFIG, i18n);
         expect(dom).toContain("<protyle-html");
         expect(dom).toContain("data-content=");
-        // Content should be HTML-escaped (< becomes &lt; etc.)
-        expect(dom).toContain("&lt;div class=&quot;ledger-tx-wrapper&quot;&gt;");
+        // Content must be double-escaped for SiYuan's DOM string format:
+        // 1st layer: content encoding (< → &lt;)
+        // 2nd layer: attribute encoding (&lt; → &amp;lt;)
+        // This ensures Lute's parser decodes one layer, leaving the content
+        // encoding intact for protyle-html's UnEscapeHTMLStr.
+        expect(dom).toContain("&amp;lt;div class=&amp;quot;ledger-tx-wrapper&amp;quot;&amp;gt;");
     });
 
     it("includes protyle-attr div", () => {

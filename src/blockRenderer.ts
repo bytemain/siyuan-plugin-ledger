@@ -71,8 +71,9 @@ function getCardCSS(): string {
         + ".ledger-card-status--pending{background:rgba(241,196,15,.15);color:#f39c12}"
         + ".ledger-card-status--uncleared{background:rgba(149,165,166,.15);color:#7f8c8d}";
 
-    // Amount
-    const amount = ".ledger-card-amount{font-family:var(--b3-font-family-code,monospace);font-weight:700;font-size:14px;white-space:nowrap}"
+    // Amount — pushed to the right via margin-left:auto so it doesn't
+    // overlap with SiYuan's native HTML block edit overlay icons
+    const amount = ".ledger-card-amount{font-family:var(--b3-font-family-code,monospace);font-weight:700;font-size:14px;white-space:nowrap;margin-left:auto;text-align:right}"
         + ".ledger-card-amount--expense{color:#e74c3c}"
         + ".ledger-card-amount--income{color:#2ecc71}"
         + ".ledger-card-amount--transfer{color:#3498db}";
@@ -174,16 +175,20 @@ export function buildTransactionCardHTML(
         : "";
 
     // Build compact HTML (no blank lines — critical for Lute HTML block parsing)
+    // Layout: date | status | payee | [edit] [delete] | amount (right-aligned)
+    // Actions are placed next to the payee name to avoid overlap with SiYuan's
+    // native HTML block edit overlay which floats at the top-right corner.
     return `<div class="ledger-tx-card ledger-card--${txType}">`
         + "<div class=\"ledger-card-header\">"
         + `<span class="ledger-card-date">📅 ${escapeHTML(date)}</span>`
         + `<span class="ledger-card-status ledger-card-status--${status}" title="${escapeHTML(statusLabel)}">${statusIcon}</span>`
         + `<span class="ledger-card-payee">${escapeHTML(payee)}</span>`
-        + `<span class="ledger-card-amount ${amountClass}">${escapeHTML(sym(currency))}${amount.toFixed(2)}</span>`
         + "<div class=\"ledger-card-actions\">"
         + `<button class="ledger-card-btn ledger-card-btn--edit" title="${escapeHTML(i18n.editTransaction || "Edit")}" data-action="edit">✏️</button>`
         + `<button class="ledger-card-btn ledger-card-btn--delete" title="${escapeHTML(i18n.deleteTransaction || "Delete")}" data-action="delete">🗑️</button>`
-        + "</div></div>"
+        + "</div>"
+        + `<span class="ledger-card-amount ${amountClass}">${escapeHTML(sym(currency))}${amount.toFixed(2)}</span>`
+        + "</div>"
         + `<div class="ledger-card-body">${postingRows}</div>`
         + footerHTML
         + "</div>";
@@ -238,7 +243,14 @@ export function buildHTMLBlockDOM(
     blockId?: string,
 ): string {
     const htmlContent = buildHTMLBlockContent(tx, config, i18n);
-    const escapedContent = escapeHTML(htmlContent);
+    // Double-encode the content for the DOM string:
+    // 1st escapeHTML: content-level encoding (equivalent to Lute.EscapeHTMLStr)
+    //   — converts < > " & to HTML entities
+    // 2nd escapeHTML: attribute-level encoding for the DOM string
+    //   — the DOM string is HTML, so attribute values need entity encoding
+    // When SiYuan's Lute parses the DOM string, it decodes one layer (attribute),
+    // leaving the content-level encoding for protyle-html's UnEscapeHTMLStr.
+    const escapedContent = escapeHTML(escapeHTML(htmlContent));
     const nodeId = blockId || "";
 
     // Zero-width space used by Lute in protyle DOM
