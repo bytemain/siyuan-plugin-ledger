@@ -121,5 +121,15 @@
   "quickReimbursement": "Record Reimbursement",
   "creditCardPaymentHint": "Transfer from asset account to credit card",
   "reimbursementHint": "Record reimbursement income",
-  "pendingReimbursement": "pending-reimbursement"
+  "pendingReimbursement": "pending-reimbursement",
+
+  "embedMonthlyTx": "Embed Monthly Transactions",
+  "embedRecentTx": "Embed Recent Transactions",
+  "embedAllTx": "Embed All Transactions",
+  "embedByCategory": "Embed by Category",
+  "embedByPayee": "Embed by Payee",
+  "embedInserted": "Embed block inserted",
+  "embedInsertFailed": "Embed block insert failed",
+  "enterAccountPath": "Enter account path (e.g. Expenses:Food)",
+  "enterPayeeName": "Enter payee name"
 }

@@ -241,6 +241,42 @@ export class DataService {
     // ─── Insert / Update / Delete ────────────────────────────────────────
 
     /**
+     * Insert a NodeBlockQueryEmbed block containing `//!js` code that
+     * queries transaction blocks at runtime.
+     *
+     * @see https://github.com/siyuan-note/siyuan/issues/9648
+     */
+    async insertEmbedBlock(
+        markdown: string,
+        parentID: string,
+        previousID: string,
+    ): Promise<string> {
+        return new Promise((resolve, reject) => {
+            fetchPost(
+                "/api/block/insertBlock",
+                {
+                    dataType: "markdown",
+                    data: markdown,
+                    parentID,
+                    previousID,
+                },
+                (res) => {
+                    if (res.code !== 0) {
+                        reject(new Error(res.msg));
+                        return;
+                    }
+                    const blockId: string = res.data[0]?.doOperations[0]?.id;
+                    if (!blockId) {
+                        reject(new Error("No block ID returned"));
+                        return;
+                    }
+                    resolve(blockId);
+                },
+            );
+        });
+    }
+
+    /**
      * Insert a new transaction block at the current protyle cursor position.
      * protyleId  – the block ID to insert after (nextID)
      * previousID – block ID before which to insert (or empty for end)

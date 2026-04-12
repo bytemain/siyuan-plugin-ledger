@@ -121,5 +121,15 @@
   "quickReimbursement": "记一笔报销收入",
   "creditCardPaymentHint": "从资产账户还信用卡",
   "reimbursementHint": "记录报销到账收入",
-  "pendingReimbursement": "待报销"
+  "pendingReimbursement": "待报销",
+
+  "embedMonthlyTx": "嵌入本月交易",
+  "embedRecentTx": "嵌入最近交易",
+  "embedAllTx": "嵌入所有交易",
+  "embedByCategory": "嵌入分类交易",
+  "embedByPayee": "嵌入收款方交易",
+  "embedInserted": "嵌入块已插入",
+  "embedInsertFailed": "嵌入块插入失败",
+  "enterAccountPath": "请输入账户路径（如 Expenses:Food）",
+  "enterPayeeName": "请输入收款方名称"
 }
