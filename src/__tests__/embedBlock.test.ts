@@ -70,6 +70,14 @@ describe("buildEmbedJsCode", () => {
         expect(code).toContain("O''Brien");
     });
 
+    it("escapes LIKE wildcards in account path queries", () => {
+        const code = buildEmbedJsCode({type: "byAccount", param: "Expenses:100%_Food"});
+        expect(code).toContain("ESCAPE");
+        // In the generated code string, % and _ are escaped with backslash for SQL LIKE
+        expect(code).toContain("100\\%");
+        expect(code).toContain("\\_Food");
+    });
+
     it("returns all query for unknown type", () => {
         // @ts-expect-error: testing fallback for invalid type
         const code = buildEmbedJsCode({type: "unknown"});

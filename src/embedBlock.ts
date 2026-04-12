@@ -54,18 +54,33 @@ function getCurrentMonth(): string {
 
 /**
  * Escape a string value for safe embedding inside a SQL single-quoted literal
- * within JS code. Prevents SQL injection when the value is interpolated.
+ * within JS code. Escapes single quotes and backslashes.
  */
 function escapeSqlValue(value: string): string {
-    return value.replace(/'/g, "''");
+    return value
+        .replace(/\\/g, "\\\\")   // escape backslash first
+        .replace(/'/g, "''");     // escape single quote
+}
+
+/**
+ * Escape a string value for safe use inside a SQL LIKE pattern.
+ * In addition to standard SQL escaping, also escapes LIKE wildcards (%, _)
+ * with a backslash ESCAPE character.
+ */
+function escapeSqlLikeValue(value: string): string {
+    return value
+        .replace(/\\/g, "\\\\")   // escape backslash first (also the ESCAPE char)
+        .replace(/'/g, "''")      // escape single quote
+        .replace(/%/g, "\\%")     // escape LIKE wildcard
+        .replace(/_/g, "\\_");    // escape LIKE wildcard
 }
 
 function buildMonthlyQuery(yearMonth: string): string {
-    const safe = escapeSqlValue(yearMonth);
+    const safe = escapeSqlLikeValue(yearMonth);
     return `//!js
 const query = async () => {
     const res = await fetchSyncPost("/api/query/sql", {
-        stmt: "SELECT DISTINCT a1.block_id FROM attributes a1 JOIN attributes a2 ON a1.block_id = a2.block_id WHERE a1.name = '${ATTR_TYPE}' AND a1.value = '${TRANSACTION_TYPE_VALUE}' AND a2.name = '${ATTR_DATE}' AND a2.value LIKE '${safe}%' ORDER BY a2.value DESC"
+        stmt: "SELECT DISTINCT a1.block_id FROM attributes a1 JOIN attributes a2 ON a1.block_id = a2.block_id WHERE a1.name = '${ATTR_TYPE}' AND a1.value = '${TRANSACTION_TYPE_VALUE}' AND a2.name = '${ATTR_DATE}' AND a2.value LIKE '${safe}%' ESCAPE '\\\\' ORDER BY a2.value DESC"
     });
     if (res.code !== 0) return [];
     return (res.data || []).map(r => r.block_id);
@@ -87,12 +102,12 @@ return query();`;
 }
 
 function buildByAccountQuery(accountPath: string): string {
-    const safe = escapeSqlValue(accountPath);
+    const safe = escapeSqlLikeValue(accountPath);
     // Search for transactions whose ATTR_POSTINGS JSON contains the account path
     return `//!js
 const query = async () => {
     const res = await fetchSyncPost("/api/query/sql", {
-        stmt: "SELECT DISTINCT a1.block_id, a2.value as dt FROM attributes a1 JOIN attributes a2 ON a1.block_id = a2.block_id JOIN attributes a3 ON a1.block_id = a3.block_id WHERE a1.name = '${ATTR_TYPE}' AND a1.value = '${TRANSACTION_TYPE_VALUE}' AND a2.name = '${ATTR_DATE}' AND a3.name = 'custom-ledger-postings' AND a3.value LIKE '%${safe}%' ORDER BY a2.value DESC"
+        stmt: "SELECT DISTINCT a1.block_id, a2.value as dt FROM attributes a1 JOIN attributes a2 ON a1.block_id = a2.block_id JOIN attributes a3 ON a1.block_id = a3.block_id WHERE a1.name = '${ATTR_TYPE}' AND a1.value = '${TRANSACTION_TYPE_VALUE}' AND a2.name = '${ATTR_DATE}' AND a3.name = 'custom-ledger-postings' AND a3.value LIKE '%${safe}%' ESCAPE '\\\\' ORDER BY a2.value DESC"
     });
     if (res.code !== 0) return [];
     return (res.data || []).map(r => r.block_id);
