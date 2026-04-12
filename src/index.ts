@@ -44,6 +44,8 @@ import {openImportExportDialog} from "./importExportDialog";
 import {openAccountManagerDialog} from "./accountManagerDialog";
 import {buildDashboardHTML} from "./dashboard";
 import {exportToLedger, exportToBeancount, exportToCSV, downloadFile} from "./exportService";
+import {buildEmbedJsCode, buildEmbedBlockMarkdown} from "./embedBlock";
+import type {EmbedQueryType} from "./embedBlock";
 
 export default class LedgerPlugin extends Plugin {
 
@@ -307,6 +309,33 @@ export default class LedgerPlugin extends Plugin {
                 callback: (protyle: Protyle) => {
                     const slashBlockId = this.getSlashBlockId(protyle);
                     this.showReimbursement(protyle, slashBlockId);
+                },
+            },
+            {
+                filter: ["嵌入本月", "embed monthly", "qrby", "monthly"],
+                html: `<div class="b3-list-item__first"><span class="b3-list-item__text">📅 ${this.i18n.embedMonthlyTx}</span></div>`,
+                id: "ledger-embed-monthly",
+                callback: (protyle: Protyle) => {
+                    const slashBlockId = this.getSlashBlockId(protyle);
+                    this.insertLedgerEmbed(protyle, "monthly", slashBlockId);
+                },
+            },
+            {
+                filter: ["嵌入最近", "embed recent", "qrzj", "recent"],
+                html: `<div class="b3-list-item__first"><span class="b3-list-item__text">🕐 ${this.i18n.embedRecentTx}</span></div>`,
+                id: "ledger-embed-recent",
+                callback: (protyle: Protyle) => {
+                    const slashBlockId = this.getSlashBlockId(protyle);
+                    this.insertLedgerEmbed(protyle, "recent", slashBlockId);
+                },
+            },
+            {
+                filter: ["嵌入所有", "embed all", "qrsy", "all transactions"],
+                html: `<div class="b3-list-item__first"><span class="b3-list-item__text">📊 ${this.i18n.embedAllTx}</span></div>`,
+                id: "ledger-embed-all",
+                callback: (protyle: Protyle) => {
+                    const slashBlockId = this.getSlashBlockId(protyle);
+                    this.insertLedgerEmbed(protyle, "all", slashBlockId);
                 },
             },
         ];
@@ -990,6 +1019,43 @@ export default class LedgerPlugin extends Plugin {
         });
     }
 
+    // ─── Embed block insertion ───────────────────────────────────────────────
+
+    /**
+     * Insert a NodeBlockQueryEmbed block with `//!js` code that queries
+     * ledger transaction blocks.
+     */
+    private async insertLedgerEmbed(
+        protyle?: Protyle,
+        queryType: EmbedQueryType = "monthly",
+        slashBlockId?: string,
+        param?: string,
+    ) {
+        const p = protyle || this.getActiveProtyle();
+        if (!p) {
+            showMessage("[Ledger] " + this.i18n.openDocFirst);
+            return;
+        }
+
+        const jsCode = buildEmbedJsCode({type: queryType, param});
+        const markdown = buildEmbedBlockMarkdown(jsCode);
+
+        try {
+            const protoInst = p.protyle;
+            const parentID = protoInst?.block?.rootID || "";
+            const previousID = protoInst?.wysiwyg?.element?.lastElementChild
+                ? ((protoInst.wysiwyg.element.lastElementChild as HTMLElement).dataset?.nodeId || "")
+                : "";
+
+            await this.dataService.insertEmbedBlock(markdown, parentID, previousID);
+            showMessage("[Ledger] " + this.i18n.embedInserted);
+            if (slashBlockId) this.removeSlashBlock(slashBlockId);
+        } catch (e) {
+            console.error("[SiYuan Ledger] insert embed block failed:", e);
+            showMessage(`[Ledger] ${this.i18n.embedInsertFailed}: ${e}`);
+        }
+    }
+
     // ─── Export helpers ──────────────────────────────────────────────────────
 
     private async doExport(format: "ledger" | "beancount" | "csv") {
@@ -1103,6 +1169,22 @@ export default class LedgerPlugin extends Plugin {
             icon: "iconLedger",
             label: `📋 ${this.i18n.quickReimbursement}`,
             click: () => this.showReimbursement(),
+        });
+        menu.addSeparator();
+        menu.addItem({
+            icon: "iconLedger",
+            label: `📅 ${this.i18n.embedMonthlyTx}`,
+            click: () => this.insertLedgerEmbed(undefined, "monthly"),
+        });
+        menu.addItem({
+            icon: "iconLedger",
+            label: `🕐 ${this.i18n.embedRecentTx}`,
+            click: () => this.insertLedgerEmbed(undefined, "recent"),
+        });
+        menu.addItem({
+            icon: "iconLedger",
+            label: `📊 ${this.i18n.embedAllTx}`,
+            click: () => this.insertLedgerEmbed(undefined, "all"),
         });
         menu.addSeparator();
         menu.addItem({
