@@ -1,5 +1,5 @@
 import {describe, it, expect} from "vitest";
-import {buildEmbedJsCode, buildEmbedBlockMarkdown} from "../embedBlock";
+import {buildEmbedJsCode, buildEmbedBlockMarkdown, buildTransactionEmbedCode} from "../embedBlock";
 import {ATTR_TYPE, ATTR_DATE, ATTR_PAYEE, TRANSACTION_TYPE_VALUE} from "../types";
 
 describe("buildEmbedJsCode", () => {
@@ -110,5 +110,98 @@ describe("buildEmbedBlockMarkdown", () => {
         const md = buildEmbedBlockMarkdown(jsCode);
         // After {{ should be //!js
         expect(md.slice(2).startsWith("//!js")).toBe(true);
+    });
+});
+
+describe("buildTransactionEmbedCode", () => {
+    const sampleTx = {
+        uuid: "test-uuid-1234",
+        date: "2024-03-15",
+        status: "cleared" as const,
+        payee: "星巴克",
+        narration: "拿铁",
+        postings: [
+            {account: "Expenses:Food:Coffee", amount: 32.5, currency: "CNY"},
+            {account: "Assets:Alipay", amount: -32.5, currency: "CNY"},
+        ],
+        tags: ["daily"],
+    };
+
+    it("generates //!js code that calls Ledger.renderTransaction", () => {
+        const code = buildTransactionEmbedCode(sampleTx);
+        expect(code).toContain("//!js");
+        expect(code).toContain("Ledger.renderTransaction");
+        expect(code).toContain("return []");
+    });
+
+    it("embeds the transaction date in the JS code", () => {
+        const code = buildTransactionEmbedCode(sampleTx);
+        expect(code).toContain("2024-03-15");
+    });
+
+    it("embeds the payee in the JS code", () => {
+        const code = buildTransactionEmbedCode(sampleTx);
+        expect(code).toContain("星巴克");
+    });
+
+    it("embeds the narration in the JS code", () => {
+        const code = buildTransactionEmbedCode(sampleTx);
+        expect(code).toContain("拿铁");
+    });
+
+    it("embeds posting amounts in the JS code", () => {
+        const code = buildTransactionEmbedCode(sampleTx);
+        expect(code).toContain("32.5");
+        expect(code).toContain("-32.5");
+        expect(code).toContain("Expenses:Food:Coffee");
+        expect(code).toContain("Assets:Alipay");
+    });
+
+    it("embeds tags in the JS code", () => {
+        const code = buildTransactionEmbedCode(sampleTx);
+        expect(code).toContain("daily");
+    });
+
+    it("embeds the uuid in the JS code", () => {
+        const code = buildTransactionEmbedCode(sampleTx);
+        expect(code).toContain("test-uuid-1234");
+    });
+
+    it("guards against missing Ledger global", () => {
+        const code = buildTransactionEmbedCode(sampleTx);
+        expect(code).toContain("typeof Ledger");
+    });
+
+    it("works with buildEmbedBlockMarkdown to produce valid embed markdown", () => {
+        const code = buildTransactionEmbedCode(sampleTx);
+        const md = buildEmbedBlockMarkdown(code);
+        expect(md.startsWith("{{")).toBe(true);
+        expect(md.endsWith("}}")).toBe(true);
+        expect(md).not.toContain("\n");
+        expect(md).toContain("_esc_newline_");
+    });
+
+    it("handles transaction with blockId (ignored in output)", () => {
+        const txWithBlockId = {...sampleTx, blockId: "block-id-123"};
+        const code = buildTransactionEmbedCode(txWithBlockId);
+        // blockId should NOT appear in the embed code
+        expect(code).not.toContain("block-id-123");
+        expect(code).toContain("Ledger.renderTransaction");
+    });
+
+    it("handles empty narration", () => {
+        const tx = {...sampleTx, narration: undefined};
+        const code = buildTransactionEmbedCode(tx);
+        expect(code).toContain("Ledger.renderTransaction");
+        // narration should be empty string
+        const parsed = JSON.parse(code.match(/Ledger\.renderTransaction\((.+?),\s*item\)/s)![1]);
+        expect(parsed.narration).toBe("");
+    });
+
+    it("handles empty tags", () => {
+        const tx = {...sampleTx, tags: undefined};
+        const code = buildTransactionEmbedCode(tx);
+        const parsed = JSON.parse(code.match(/Ledger\.renderTransaction\((.+?),\s*item\)/s)![1]);
+        expect(parsed.tags).toEqual([]);
     });
 });

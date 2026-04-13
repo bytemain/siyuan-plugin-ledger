@@ -31,38 +31,98 @@
   background: rgba(52, 152, 219, 0.05);
 }
 
-// ── Inline edit button (upper-right corner) ───────────────────────────────────
+// ── Data-driven transaction card (rendered by embed block //!js code) ──────────
 
-.ledger-tx-has-edit {
+.ledger-tx-card {
   position: relative;
+  display: block;
+  padding: 4px 0;
+  font-family: var(--b3-font-family-code);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
-.ledger-edit-btn {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 24px;
-  text-align: center;
-  opacity: 0;
-  transition: opacity 0.15s ease, background 0.15s ease;
-  z-index: 1;
+// ── Card header (date / status / payee / amount) ──────────────────────────────
+
+.ledger-tx-card-header,
+.ledger-tx-card-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-[custom-ledger-type="transaction"]:hover .ledger-edit-btn {
-  opacity: 0.6;
+.ledger-tx-card-date {
+  color: var(--b3-theme-on-surface-muted, #888);
+  white-space: nowrap;
 }
 
-[custom-ledger-type="transaction"] .ledger-edit-btn:hover {
-  opacity: 1;
-  background: var(--b3-list-hover, rgba(0, 0, 0, 0.06));
+.ledger-tx-card-status {
+  color: var(--b3-theme-on-surface-muted, #888);
+  font-size: 12px;
+}
+
+.ledger-tx-card-payee {
+  font-weight: 600;
+}
+
+.ledger-tx-card-narration {
+  color: var(--b3-theme-on-surface-muted, #888);
+  font-style: italic;
+}
+
+.ledger-tx-card-amount {
+  margin-left: auto;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ledger-tx-card-flow {
+  color: var(--b3-theme-on-surface-muted, #888);
+  font-size: 12px;
+}
+
+// ── Postings ──────────────────────────────────────────────────────────────────
+
+.ledger-tx-card-postings {
+  padding-left: 12px;
+  margin-top: 2px;
+}
+
+.ledger-tx-card-posting {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.ledger-tx-card-posting-icon {
+  flex-shrink: 0;
+}
+
+.ledger-tx-card-posting-account {
+  flex: 1;
+}
+
+.ledger-tx-card-posting-amount {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+// ── Tags ──────────────────────────────────────────────────────────────────────
+
+.ledger-tx-card-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-left: 12px;
+  margin-top: 2px;
+}
+
+.ledger-tx-card-tag {
+  font-size: 11px;
+  color: var(--b3-theme-on-surface-muted, #888);
 }
 
 // ── Dialog / Form styles ──────────────────────────────────────────────────────
