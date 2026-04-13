@@ -1,6 +1,9 @@
 import {describe, it, expect} from "vitest";
-import {buildEmbedJsCode, buildEmbedBlockMarkdown, buildTransactionEmbedCode} from "../embedBlock";
-import {ATTR_TYPE, ATTR_DATE, ATTR_PAYEE, TRANSACTION_TYPE_VALUE} from "../types";
+import {buildEmbedJsCode, buildEmbedBlockMarkdown, buildTransactionEmbedCode, attrsToTransactionData} from "../embedBlock";
+import {
+    ATTR_TYPE, ATTR_DATE, ATTR_STATUS, ATTR_PAYEE, ATTR_NARRATION,
+    ATTR_POSTINGS, ATTR_TAGS, ATTR_UUID, TRANSACTION_TYPE_VALUE,
+} from "../types";
 
 describe("buildEmbedJsCode", () => {
     it("generates monthly query code with //!js prefix", () => {
@@ -114,66 +117,71 @@ describe("buildEmbedBlockMarkdown", () => {
 });
 
 describe("buildTransactionEmbedCode", () => {
-    const sampleTx = {
-        uuid: "test-uuid-1234",
-        date: "2024-03-15",
-        status: "cleared" as const,
-        payee: "星巴克",
-        narration: "拿铁",
-        postings: [
-            {account: "Expenses:Food:Coffee", amount: 32.5, currency: "CNY"},
-            {account: "Assets:Alipay", amount: -32.5, currency: "CNY"},
-        ],
-        tags: ["daily"],
-    };
-
     it("generates //!js code that calls Ledger.renderTransaction", () => {
-        const code = buildTransactionEmbedCode(sampleTx);
+        const code = buildTransactionEmbedCode();
         expect(code).toContain("//!js");
         expect(code).toContain("Ledger.renderTransaction");
-        expect(code).toContain("return []");
+        expect(code).toContain("return render()");
     });
 
-    it("embeds the transaction date in the JS code", () => {
-        const code = buildTransactionEmbedCode(sampleTx);
-        expect(code).toContain("2024-03-15");
+    it("reads blockId from the DOM via closest('[data-node-id]')", () => {
+        const code = buildTransactionEmbedCode();
+        expect(code).toContain("item.closest('[data-node-id]')");
+        expect(code).toContain("getAttribute('data-node-id')");
     });
 
-    it("embeds the payee in the JS code", () => {
-        const code = buildTransactionEmbedCode(sampleTx);
-        expect(code).toContain("星巴克");
+    it("fetches IAL attributes via fetchSyncPost", () => {
+        const code = buildTransactionEmbedCode();
+        expect(code).toContain("fetchSyncPost");
+        expect(code).toContain("/api/attr/getBlockAttrs");
     });
 
-    it("embeds the narration in the JS code", () => {
-        const code = buildTransactionEmbedCode(sampleTx);
-        expect(code).toContain("拿铁");
+    it("does not embed transaction-specific data in the JS code", () => {
+        const txWithData = {
+            uuid: "test-uuid-1234",
+            date: "2024-03-15",
+            status: "cleared" as const,
+            payee: "星巴克",
+            narration: "拿铁",
+            postings: [
+                {account: "Expenses:Food:Coffee", amount: 32.5, currency: "CNY"},
+                {account: "Assets:Alipay", amount: -32.5, currency: "CNY"},
+            ],
+            tags: ["daily"],
+        };
+        const code = buildTransactionEmbedCode(txWithData);
+        // Transaction-specific data should NOT appear in the JS code
+        expect(code).not.toContain("test-uuid-1234");
+        expect(code).not.toContain("星巴克");
+        expect(code).not.toContain("32.5");
+        expect(code).not.toContain("Expenses:Food:Coffee");
     });
 
-    it("embeds posting amounts in the JS code", () => {
-        const code = buildTransactionEmbedCode(sampleTx);
-        expect(code).toContain("32.5");
-        expect(code).toContain("-32.5");
-        expect(code).toContain("Expenses:Food:Coffee");
-        expect(code).toContain("Assets:Alipay");
+    it("generates identical code regardless of the transaction", () => {
+        const code1 = buildTransactionEmbedCode({
+            uuid: "a", date: "2024-01-01", status: "cleared",
+            payee: "A", postings: [{account: "X", amount: 1, currency: "CNY"}],
+        });
+        const code2 = buildTransactionEmbedCode({
+            uuid: "b", date: "2025-12-31", status: "pending",
+            payee: "B", postings: [{account: "Y", amount: 999, currency: "USD"}],
+        });
+        expect(code1).toBe(code2);
     });
 
-    it("embeds tags in the JS code", () => {
-        const code = buildTransactionEmbedCode(sampleTx);
-        expect(code).toContain("daily");
-    });
-
-    it("embeds the uuid in the JS code", () => {
-        const code = buildTransactionEmbedCode(sampleTx);
-        expect(code).toContain("test-uuid-1234");
+    it("works without any argument", () => {
+        const code = buildTransactionEmbedCode();
+        expect(code).toContain("//!js");
+        expect(code).toContain("Ledger.renderTransaction");
     });
 
     it("guards against missing Ledger global", () => {
-        const code = buildTransactionEmbedCode(sampleTx);
+        const code = buildTransactionEmbedCode();
         expect(code).toContain("typeof Ledger");
     });
 
     it("works with buildEmbedBlockMarkdown to produce valid embed markdown", () => {
-        const code = buildTransactionEmbedCode(sampleTx);
+        const code = buildTransactionEmbedCode();
         const md = buildEmbedBlockMarkdown(code);
         expect(md.startsWith("{{")).toBe(true);
         expect(md.endsWith("}}")).toBe(true);
@@ -181,27 +189,98 @@ describe("buildTransactionEmbedCode", () => {
         expect(md).toContain("_esc_newline_");
     });
 
-    it("handles transaction with blockId (ignored in output)", () => {
-        const txWithBlockId = {...sampleTx, blockId: "block-id-123"};
-        const code = buildTransactionEmbedCode(txWithBlockId);
-        // blockId should NOT appear in the embed code
-        expect(code).not.toContain("block-id-123");
-        expect(code).toContain("Ledger.renderTransaction");
+    it("returns [] so SiYuan does not render extra blocks", () => {
+        const code = buildTransactionEmbedCode();
+        expect(code).toContain("return []");
+    });
+});
+
+describe("attrsToTransactionData", () => {
+    const validAttrs: Record<string, string> = {
+        [ATTR_TYPE]: TRANSACTION_TYPE_VALUE,
+        [ATTR_DATE]: "2024-03-15",
+        [ATTR_STATUS]: "cleared",
+        [ATTR_PAYEE]: "星巴克",
+        [ATTR_NARRATION]: "拿铁",
+        [ATTR_POSTINGS]: JSON.stringify([
+            {account: "Expenses:Food:Coffee", amount: 32.5, currency: "CNY"},
+            {account: "Assets:Alipay", amount: -32.5, currency: "CNY"},
+        ]),
+        [ATTR_TAGS]: "daily,coffee",
+        [ATTR_UUID]: "test-uuid-1234",
+    };
+
+    it("converts valid IAL attributes to ITransactionEmbedData", () => {
+        const data = attrsToTransactionData(validAttrs);
+        expect(data).not.toBeNull();
+        expect(data!.date).toBe("2024-03-15");
+        expect(data!.status).toBe("cleared");
+        expect(data!.payee).toBe("星巴克");
+        expect(data!.narration).toBe("拿铁");
+        expect(data!.uuid).toBe("test-uuid-1234");
+        expect(data!.postings).toHaveLength(2);
+        expect(data!.postings[0].account).toBe("Expenses:Food:Coffee");
+        expect(data!.postings[0].amount).toBe(32.5);
+        expect(data!.tags).toEqual(["daily", "coffee"]);
     });
 
-    it("handles empty narration", () => {
-        const tx = {...sampleTx, narration: undefined};
-        const code = buildTransactionEmbedCode(tx);
-        expect(code).toContain("Ledger.renderTransaction");
-        // narration should be empty string
-        const parsed = JSON.parse(code.match(/Ledger\.renderTransaction\((.+?),\s*item\)/s)![1]);
-        expect(parsed.narration).toBe("");
+    it("returns null when ATTR_TYPE is missing", () => {
+        const attrs = {...validAttrs};
+        delete attrs[ATTR_TYPE];
+        expect(attrsToTransactionData(attrs)).toBeNull();
+    });
+
+    it("returns null when ATTR_TYPE is not 'transaction'", () => {
+        const attrs = {...validAttrs, [ATTR_TYPE]: "other"};
+        expect(attrsToTransactionData(attrs)).toBeNull();
+    });
+
+    it("returns null when postings JSON is invalid", () => {
+        const attrs = {...validAttrs, [ATTR_POSTINGS]: "not-json"};
+        expect(attrsToTransactionData(attrs)).toBeNull();
+    });
+
+    it("handles empty postings", () => {
+        const attrs = {...validAttrs, [ATTR_POSTINGS]: "[]"};
+        const data = attrsToTransactionData(attrs);
+        expect(data).not.toBeNull();
+        expect(data!.postings).toEqual([]);
+    });
+
+    it("handles missing postings attribute", () => {
+        const attrs = {...validAttrs};
+        delete attrs[ATTR_POSTINGS];
+        const data = attrsToTransactionData(attrs);
+        expect(data).not.toBeNull();
+        expect(data!.postings).toEqual([]);
     });
 
     it("handles empty tags", () => {
-        const tx = {...sampleTx, tags: undefined};
-        const code = buildTransactionEmbedCode(tx);
-        const parsed = JSON.parse(code.match(/Ledger\.renderTransaction\((.+?),\s*item\)/s)![1]);
-        expect(parsed.tags).toEqual([]);
+        const attrs = {...validAttrs, [ATTR_TAGS]: ""};
+        const data = attrsToTransactionData(attrs);
+        expect(data).not.toBeNull();
+        expect(data!.tags).toEqual([]);
+    });
+
+    it("handles missing optional fields gracefully", () => {
+        const minimal: Record<string, string> = {
+            [ATTR_TYPE]: TRANSACTION_TYPE_VALUE,
+        };
+        const data = attrsToTransactionData(minimal);
+        expect(data).not.toBeNull();
+        expect(data!.date).toBe("");
+        expect(data!.status).toBe("uncleared");
+        expect(data!.payee).toBe("");
+        expect(data!.narration).toBe("");
+        expect(data!.postings).toEqual([]);
+        expect(data!.tags).toEqual([]);
+        expect(data!.uuid).toBe("");
+    });
+
+    it("trims whitespace from tag entries", () => {
+        const attrs = {...validAttrs, [ATTR_TAGS]: " daily , coffee , "};
+        const data = attrsToTransactionData(attrs);
+        expect(data).not.toBeNull();
+        expect(data!.tags).toEqual(["daily", "coffee"]);
     });
 });

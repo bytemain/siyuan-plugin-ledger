@@ -65,6 +65,9 @@ export function buildTransactionHTML(
  * This is called by `Ledger.renderTransaction()` (the global registered
  * by the plugin).  The `container` is the embed block's `item` element
  * provided by SiYuan's `//!js` execution context.
+ *
+ * After rendering, a `MutationObserver` hides any "no results" placeholder
+ * that SiYuan adds because the embed code returns `[]`.
  */
 export function renderTransactionIntoContainer(
     data: ITransactionEmbedData,
@@ -88,6 +91,38 @@ export function renderTransactionIntoContainer(
     } else {
         container.prepend(wrapper);
     }
+
+    // The embed block returns [] so SiYuan will append a "no results"
+    // placeholder.  Hide every child except our rendered card.
+    suppressEmptyMessage(container);
+}
+
+/**
+ * Hide non-card children that SiYuan adds to the embed container (e.g. the
+ * "不存在符合条件的内容块" placeholder).  Uses a `MutationObserver` to catch
+ * elements added asynchronously and disconnects after 5 s.
+ */
+function suppressEmptyMessage(container: HTMLElement): void {
+    const hideNonCards = () => {
+        for (const child of Array.from(container.children)) {
+            if (
+                child instanceof HTMLElement &&
+                !child.classList.contains("ledger-tx-card")
+            ) {
+                child.style.display = "none";
+            }
+        }
+    };
+
+    // Run immediately in case the message already exists
+    hideNonCards();
+
+    // Observe future children added by SiYuan's post-render pipeline
+    const observer = new MutationObserver(hideNonCards);
+    observer.observe(container, {childList: true});
+
+    // Clean up after a reasonable time
+    setTimeout(() => observer.disconnect(), 5000);
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
