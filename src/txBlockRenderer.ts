@@ -122,10 +122,15 @@ function suppressEmptyMessage(container: HTMLElement): void {
     observer.observe(container, {childList: true});
 
     // Clean up after a reasonable time
-    setTimeout(() => observer.disconnect(), 5000);
+    setTimeout(() => observer.disconnect(), OBSERVER_CLEANUP_MS);
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
+
+/** Time (ms) before the MutationObserver used to suppress the empty-query
+ *  message is disconnected.  Must be long enough for SiYuan's async render
+ *  pipeline to finish, but not so long that we leak observers. */
+const OBSERVER_CLEANUP_MS = 5000;
 
 /** Escape text for safe HTML interpolation */
 function esc(s: string): string {
