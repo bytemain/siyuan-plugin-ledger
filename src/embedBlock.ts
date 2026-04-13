@@ -188,6 +188,11 @@ export interface ITransactionEmbedData {
  * At runtime the code calls `Ledger.renderTransaction(data, item)` which
  * is registered as a global by the plugin.  If the plugin is not loaded
  * the embed block simply returns `[]` (blank).
+ *
+ * Accepts both full `ITransaction` and `Omit<ITransaction, "blockId">`.
+ * The `blockId` field (if present) is intentionally omitted from the
+ * serialised output because the embed block's own block ID should not
+ * be hard-coded into its JS content.
  */
 export function buildTransactionEmbedCode(
     tx: ITransaction | Omit<ITransaction, "blockId">,
