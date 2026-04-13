@@ -21,6 +21,7 @@ import {
     DEFAULT_CONFIG,
 } from "./types";
 import {DEFAULT_ACCOUNTS} from "./defaultAccounts";
+import {buildTransactionEmbedCode, buildEmbedBlockMarkdown} from "./embedBlock";
 
 // ─── IAL helper ──────────────────────────────────────────────────────────────
 
@@ -277,9 +278,12 @@ export class DataService {
     }
 
     /**
-     * Insert a new transaction block at the current protyle cursor position.
-     * protyleId  – the block ID to insert after (nextID)
-     * previousID – block ID before which to insert (or empty for end)
+     * Insert a new transaction as an embed block.
+     *
+     * The block's `//!js` code embeds the transaction data directly and
+     * calls `Ledger.renderTransaction()` at render time.  IAL attributes
+     * are set separately so that listing embed blocks (monthly, recent,
+     * etc.) can still query transactions via the `attributes` table.
      */
     async insertTransaction(
         tx: Omit<ITransaction, "blockId">,
@@ -290,14 +294,15 @@ export class DataService {
         const uuid = tx.uuid || generateUUID();
         const fullTx: ITransaction = {...tx, blockId: "", uuid};
 
-        const content = buildBlockContent(fullTx, this.config);
+        const jsCode = buildTransactionEmbedCode(fullTx);
+        const markdown = buildEmbedBlockMarkdown(jsCode);
 
         return new Promise((resolve, reject) => {
             fetchPost(
                 "/api/block/insertBlock",
                 {
                     dataType: "markdown",
-                    data: content,
+                    data: markdown,
                     parentID,
                     previousID,
                 },
@@ -321,15 +326,22 @@ export class DataService {
         });
     }
 
+    /**
+     * Update an existing transaction embed block.
+     *
+     * Regenerates the `//!js` code with the new transaction data and
+     * updates both the block content and the IAL attributes.
+     */
     async updateTransaction(tx: ITransaction): Promise<void> {
-        const content = buildBlockContent(tx, this.config);
+        const jsCode = buildTransactionEmbedCode(tx);
+        const markdown = buildEmbedBlockMarkdown(jsCode);
 
         await new Promise<void>((resolve, reject) => {
             fetchPost(
                 "/api/block/updateBlock",
                 {
                     dataType: "markdown",
-                    data: content,
+                    data: markdown,
                     id: tx.blockId,
                 },
                 (res) => (res.code === 0 ? resolve() : reject(new Error(res.msg))),

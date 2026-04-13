@@ -10,7 +10,10 @@
  * SiYuan then calls `/api/search/getEmbedBlock` with those IDs to render the blocks.
  */
 
-import {ATTR_TYPE, ATTR_DATE, ATTR_PAYEE, TRANSACTION_TYPE_VALUE} from "./types";
+import {
+    ATTR_TYPE, ATTR_DATE, ATTR_PAYEE, TRANSACTION_TYPE_VALUE,
+    type ITransaction,
+} from "./types";
 
 // ─── Embed query types ───────────────────────────────────────────────────────
 
@@ -152,4 +155,60 @@ export function buildEmbedBlockMarkdown(jsCode: string): string {
     // Replace newlines with the SiYuan escape sequence for embed block content
     const escaped = jsCode.replace(/\n/g, "_esc_newline_");
     return `{{${escaped}}}`;
+}
+
+// ─── Transaction embed block ─────────────────────────────────────────────────
+
+/**
+ * Serialisable subset of transaction data embedded in the `//!js` code.
+ * Only includes fields needed for rendering — `blockId` is omitted because
+ * it is not known at code-generation time.
+ */
+export interface ITransactionEmbedData {
+    date: string;
+    status: string;
+    payee: string;
+    narration: string;
+    postings: Array<{
+        account: string;
+        amount: number;
+        currency: string;
+    }>;
+    tags: string[];
+    uuid: string;
+}
+
+/**
+ * Build the `//!js` code that renders a single transaction block.
+ *
+ * The transaction data is serialised directly into the JS source so the
+ * embed block is fully self-contained — it does not need to fetch its own
+ * attributes at render time.
+ *
+ * At runtime the code calls `Ledger.renderTransaction(data, item)` which
+ * is registered as a global by the plugin.  If the plugin is not loaded
+ * the embed block simply returns `[]` (blank).
+ */
+export function buildTransactionEmbedCode(
+    tx: ITransaction | Omit<ITransaction, "blockId">,
+): string {
+    const data: ITransactionEmbedData = {
+        date: tx.date,
+        status: tx.status,
+        payee: tx.payee,
+        narration: tx.narration || "",
+        postings: tx.postings.map(p => ({
+            account: p.account,
+            amount: p.amount,
+            currency: p.currency,
+        })),
+        tags: tx.tags || [],
+        uuid: tx.uuid,
+    };
+    const json = JSON.stringify(data);
+    return `//!js
+if (typeof Ledger !== 'undefined' && Ledger.renderTransaction) {
+    Ledger.renderTransaction(${json}, item);
+}
+return [];`;
 }

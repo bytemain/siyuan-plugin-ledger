@@ -1,137 +1,93 @@
 /**
- * Data-driven transaction block renderer.
+ * Transaction block renderer — builds HTML for a transaction card.
  *
- * Instead of displaying static markdown text generated at insert time,
- * this module reads IAL attributes directly from a transaction block's
- * DOM element and replaces its visible content with a dynamically
- * rendered HTML card.
+ * This module provides two public APIs:
  *
- * **Why data-driven?**
- *   • The rendering logic lives in the plugin code, not in the block
- *     content. Updating the plugin automatically updates all transaction
- *     block UIs — no migration needed.
- *   • Inspired by sy-query-view's approach: data (attributes) is the
- *     source of truth, and the UI is derived from it at runtime.
+ * 1. `buildTransactionHTML(data, config)` — pure function that returns an
+ *    HTML string for a transaction card.  Used by the global
+ *    `Ledger.renderTransaction()` inside embed blocks.
  *
- * The original text produced by `buildBlockContent()` is preserved in
- * the block as a fallback for when the plugin is not loaded.
+ * 2. `renderTransactionIntoContainer(data, container, config)` — convenience
+ *    wrapper that builds the HTML *and* injects it into a DOM container
+ *    element (the embed block's `item`).
+ *
+ * The rendering is fully data-driven: the transaction data object is the
+ * single source of truth, and the HTML is derived from it at runtime.
  */
 
 import {
-    ATTR_DATE,
-    ATTR_STATUS,
-    ATTR_PAYEE,
-    ATTR_NARRATION,
-    ATTR_POSTINGS,
-    ATTR_TAGS,
     type ILedgerConfig,
     type IPosting,
     type TransactionStatus,
 } from "./types";
+import type {ITransactionEmbedData} from "./embedBlock";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export interface ITxRenderOptions {
-    config: ILedgerConfig;
-    /** Called when the user clicks the edit button on the rendered card */
-    onEdit?: (blockId: string) => void;
-    /** Tooltip text for the edit button */
-    editLabel?: string;
+/**
+ * Build a complete HTML string for a transaction card.
+ *
+ * @param data   Transaction data (from the embed block's serialised JSON)
+ * @param config Plugin configuration (display mode, currency symbols, etc.)
+ * @returns      HTML string ready to be inserted into a container element
+ */
+export function buildTransactionHTML(
+    data: ITransactionEmbedData,
+    config: ILedgerConfig,
+): string {
+    const amount = data.postings
+        .filter(p => p.amount > 0)
+        .reduce((s, p) => s + p.amount, 0);
+    const currency = data.postings[0]?.currency || config.defaultCurrency;
+    const sym = config.currencySymbols[currency] || currency;
+
+    const params: ICardHTMLParams = {
+        date: data.date,
+        status: (data.status || "uncleared") as TransactionStatus,
+        payee: data.payee,
+        narration: data.narration,
+        postings: data.postings,
+        tags: data.tags,
+        amount,
+        sym,
+        config,
+    };
+
+    if (config.displayMode === "compact") {
+        return buildCompactCard(params);
+    }
+    return buildDetailedCard(params);
 }
 
 /**
- * Render a single transaction block by overlaying a rich HTML card on
- * top of the static markdown content.  All transaction data is read
- * from the block element's IAL attributes.
+ * Render a transaction card into a container DOM element.
  *
- * **Idempotent** — blocks that already carry the `ledger-tx-rendered`
- * CSS class are silently skipped.
+ * This is called by `Ledger.renderTransaction()` (the global registered
+ * by the plugin).  The `container` is the embed block's `item` element
+ * provided by SiYuan's `//!js` execution context.
  */
-export function renderTransactionBlock(
-    block: HTMLElement,
-    options: ITxRenderOptions,
+export function renderTransactionIntoContainer(
+    data: ITransactionEmbedData,
+    container: HTMLElement,
+    config: ILedgerConfig,
 ): void {
-    // Skip if already rendered
-    if (block.classList.contains("ledger-tx-rendered")) return;
+    if (!container) return;
 
-    // ── Read IAL attributes from the DOM element ─────────────────────────
-    const date = block.getAttribute(ATTR_DATE) || "";
-    const status = (block.getAttribute(ATTR_STATUS) || "uncleared") as TransactionStatus;
-    const payee = block.getAttribute(ATTR_PAYEE) || "";
-    const narration = block.getAttribute(ATTR_NARRATION) || "";
-    const tagsRaw = block.getAttribute(ATTR_TAGS) || "";
-    const tags = tagsRaw ? tagsRaw.split(",").map(t => t.trim()).filter(Boolean) : [];
+    const html = buildTransactionHTML(data, config);
 
-    let postings: IPosting[] = [];
-    try {
-        postings = JSON.parse(block.getAttribute(ATTR_POSTINGS) || "[]");
-    } catch {
-        // Keep empty array — the block may have corrupt/missing data
+    // Create wrapper div
+    const wrapper = document.createElement("div");
+    wrapper.className = "ledger-tx-card";
+    wrapper.setAttribute("contenteditable", "false");
+    wrapper.innerHTML = html;
+
+    // Clear any previous render and insert
+    const existing = container.querySelector(".ledger-tx-card");
+    if (existing) {
+        existing.replaceWith(wrapper);
+    } else {
+        container.prepend(wrapper);
     }
-
-    // If essential data is missing the attributes haven't been set yet —
-    // leave the raw text visible instead.
-    if (!date && !payee) return;
-
-    // ── Resolve block ID ─────────────────────────────────────────────────
-    const blockId =
-        block.getAttribute("data-node-id") ||
-        block.closest("[data-node-id]")?.getAttribute("data-node-id") ||
-        "";
-
-    // ── Compute derived values ───────────────────────────────────────────
-    // Sum of positive postings = the "transaction amount" shown in the card.
-    // In double-entry bookkeeping, debits + credits balance to zero, so the
-    // total of the positive side represents the movement of funds.
-    const amount = postings
-        .filter(p => p.amount > 0)
-        .reduce((s, p) => s + p.amount, 0);
-    const currency = postings[0]?.currency || options.config.defaultCurrency;
-    const sym = options.config.currencySymbols[currency] || currency;
-
-    // Transaction-type flags (used by CSS for colour-coding)
-    const hasExpense = postings.some(p => p.account.startsWith("Expenses"));
-    const hasIncome = postings.some(p => p.account.startsWith("Income"));
-    const isTransfer = !hasExpense && !hasIncome;
-
-    block.setAttribute("data-expense", String(hasExpense && !hasIncome));
-    block.setAttribute("data-income", String(hasIncome && !hasExpense));
-    block.setAttribute("data-transfer", String(isTransfer));
-
-    // ── Build the overlay element ────────────────────────────────────────
-    const overlay = document.createElement("div");
-    overlay.className = "ledger-tx-card";
-    overlay.setAttribute("contenteditable", "false");
-    overlay.innerHTML = buildCardHTML({
-        date,
-        status,
-        payee,
-        narration,
-        postings,
-        tags,
-        amount,
-        sym,
-        config: options.config,
-        editLabel: options.editLabel || "✏️",
-    });
-
-    // Wire up the edit button
-    if (options.onEdit && blockId) {
-        const editBtn = overlay.querySelector<HTMLElement>(".ledger-tx-card-edit");
-        if (editBtn) {
-            editBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                options.onEdit!(blockId);
-            });
-        }
-    }
-
-    // Insert the overlay as the first child of the block
-    block.insertBefore(overlay, block.firstChild);
-
-    // Mark the block so the observer skips it on subsequent passes
-    block.classList.add("ledger-tx-rendered");
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
@@ -155,14 +111,6 @@ interface ICardHTMLParams {
     amount: number;
     sym: string;
     config: ILedgerConfig;
-    editLabel: string;
-}
-
-function buildCardHTML(p: ICardHTMLParams): string {
-    if (p.config.displayMode === "compact") {
-        return buildCompactCard(p);
-    }
-    return buildDetailedCard(p);
 }
 
 function buildCompactCard(p: ICardHTMLParams): string {
@@ -174,8 +122,7 @@ function buildCompactCard(p: ICardHTMLParams): string {
   <span class="ledger-tx-card-payee">${esc(p.payee)}</span>
   <span class="ledger-tx-card-amount">${esc(p.sym)}${p.amount.toFixed(2)}</span>
   <span class="ledger-tx-card-flow">${esc(to)} ← ${esc(from)}</span>
-</div>
-<button class="ledger-tx-card-edit" title="${esc(p.editLabel)}">${esc(p.editLabel)}</button>`;
+</div>`;
 }
 
 function buildDetailedCard(p: ICardHTMLParams): string {
@@ -207,6 +154,5 @@ function buildDetailedCard(p: ICardHTMLParams): string {
   <span class="ledger-tx-card-amount">${esc(p.sym)}${p.amount.toFixed(2)}</span>
 </div>
 <div class="ledger-tx-card-postings">${postingsHTML}</div>
-${tagsHTML}
-<button class="ledger-tx-card-edit" title="${esc(p.editLabel)}">${esc(p.editLabel)}</button>`;
+${tagsHTML}`;
 }

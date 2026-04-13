@@ -45,8 +45,8 @@ import {openAccountManagerDialog} from "./accountManagerDialog";
 import {buildDashboardHTML} from "./dashboard";
 import {exportToLedger, exportToBeancount, exportToCSV, downloadFile} from "./exportService";
 import {buildEmbedJsCode, buildEmbedBlockMarkdown} from "./embedBlock";
-import type {EmbedQueryType} from "./embedBlock";
-import {renderTransactionBlock} from "./txBlockRenderer";
+import type {EmbedQueryType, ITransactionEmbedData} from "./embedBlock";
+import {renderTransactionIntoContainer} from "./txBlockRenderer";
 
 export default class LedgerPlugin extends Plugin {
 
@@ -55,10 +55,6 @@ export default class LedgerPlugin extends Plugin {
     private topBarElement: HTMLElement | null = null;
     private statusBarElement: HTMLElement | null = null;
 
-    /** MutationObserver for rendering transaction blocks from IAL attributes */
-    private txBlockObserver: MutationObserver | null = null;
-    /** Debounce timer for MutationObserver callback */
-    private txObserverDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     /** Bound handler refs for cleanup */
     private boundDblClickHandler: ((e: MouseEvent) => void) | null = null;
 
@@ -94,8 +90,9 @@ export default class LedgerPlugin extends Plugin {
         // Register EventBus listeners
         this.registerEventBusListeners();
 
-        // MutationObserver: inject edit buttons whenever new transaction blocks appear
-        this.setupTransactionBlockObserver();
+        // Register the global Ledger object so that //!js embed blocks
+        // can call Ledger.renderTransaction() at render time.
+        this.registerGlobalLedger();
 
         // Double-click on transaction blocks to edit
         this.setupDblClickHandler();
@@ -139,11 +136,9 @@ export default class LedgerPlugin extends Plugin {
     }
 
     onunload() {
-        this.txBlockObserver?.disconnect();
-        this.txBlockObserver = null;
-        if (this.txObserverDebounceTimer) {
-            clearTimeout(this.txObserverDebounceTimer);
-            this.txObserverDebounceTimer = null;
+        // Remove global Ledger object
+        if ((globalThis as any).Ledger) {
+            delete (globalThis as any).Ledger;
         }
         if (this.boundDblClickHandler) {
             document.removeEventListener("dblclick", this.boundDblClickHandler);
@@ -646,42 +641,48 @@ export default class LedgerPlugin extends Plugin {
         });
     }
 
-    // ─── Transaction block DOM injection ────────────────────────────────────
+    // ─── Global Ledger object & transaction embed rendering ─────────────────
 
     /**
-     * Set up a MutationObserver to dynamically render transaction blocks.
+     * Register `globalThis.Ledger` so that `//!js` embed blocks can call
+     * `Ledger.renderTransaction(data, item)` at render time.
      *
-     * When new DOM nodes appear (e.g. protyle load, scroll, embed refresh),
-     * the observer triggers `renderTransactionBlocksGlobal()` which reads
-     * IAL attributes from each transaction block and overlays a rich HTML
-     * card.  This is the "data-driven" approach: the block stores data in
-     * attributes, and the UI is derived at runtime — so updating the plugin
-     * automatically updates every transaction block's visual appearance.
+     * This is the core of the data-driven approach: each transaction is an
+     * embed block whose `//!js` code serialises the transaction data and
+     * calls the global renderer.  The rendering logic lives in the plugin,
+     * not in the block, so updating the plugin updates all UIs instantly.
      */
-    private setupTransactionBlockObserver() {
-        this.txBlockObserver = new MutationObserver(() => {
-            if (this.txObserverDebounceTimer) clearTimeout(this.txObserverDebounceTimer);
-            this.txObserverDebounceTimer = setTimeout(() => this.renderTransactionBlocksGlobal(), 200);
-        });
-        this.txBlockObserver.observe(document.body, {
-            childList: true,
-            subtree: true,
-        });
-        // Run once immediately for any blocks already on screen
-        this.renderTransactionBlocksGlobal();
+    private registerGlobalLedger() {
+        const config = () => this.dataService.getConfig();
+        (globalThis as any).Ledger = {
+            /**
+             * Called from `//!js` code inside transaction embed blocks.
+             *
+             * @param data  Transaction data object (serialised in the JS code)
+             * @param item  The embed block DOM element (SiYuan's `item` param)
+             */
+            renderTransaction(data: ITransactionEmbedData, item: HTMLElement) {
+                renderTransactionIntoContainer(data, item, config());
+            },
+        };
     }
 
     /**
      * Set up a global double-click handler on transaction blocks to open the
-     * edit dialog. Works regardless of whether the card was rendered.
+     * edit dialog.  Works for both legacy paragraph blocks and new embed
+     * blocks since the lookup is based on IAL attributes.
      */
     private setupDblClickHandler() {
         this.boundDblClickHandler = (e: MouseEvent) => {
             const target = e.target as HTMLElement | null;
             if (!target) return;
-            const block = target.closest?.<HTMLElement>(
-                `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
-            );
+            // Try the ledger-tx-card inside an embed block first
+            const card = target.closest?.<HTMLElement>(".ledger-tx-card");
+            const block = card
+                ? card.closest<HTMLElement>("[data-node-id]")
+                : target.closest?.<HTMLElement>(
+                    `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
+                );
             if (!block) return;
             e.preventDefault();
             e.stopPropagation();
@@ -690,31 +691,6 @@ export default class LedgerPlugin extends Plugin {
             if (blockId) this.openEditTransactionById(blockId);
         };
         document.addEventListener("dblclick", this.boundDblClickHandler);
-    }
-
-    /**
-     * Scan the entire document for transaction blocks and render each one
-     * as a rich HTML card driven by the block's IAL attributes.
-     *
-     * The original markdown text (produced by `buildBlockContent()`) is
-     * preserved inside the block for non-plugin rendering; the card is an
-     * overlay that hides it visually while the plugin is active.
-     *
-     * Idempotent — blocks that already carry `.ledger-tx-rendered` are
-     * silently skipped by `renderTransactionBlock()`.
-     */
-    private renderTransactionBlocksGlobal() {
-        const blocks = document.querySelectorAll<HTMLElement>(
-            `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
-        );
-        const config = this.dataService.getConfig();
-        for (const block of blocks) {
-            renderTransactionBlock(block, {
-                config,
-                onEdit: (blockId) => this.openEditTransactionById(blockId),
-                editLabel: this.i18n.editTransaction,
-            });
-        }
     }
 
     private openEditTransactionById(blockId: string) {
