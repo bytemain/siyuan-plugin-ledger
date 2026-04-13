@@ -46,6 +46,7 @@ import {buildDashboardHTML} from "./dashboard";
 import {exportToLedger, exportToBeancount, exportToCSV, downloadFile} from "./exportService";
 import {buildEmbedJsCode, buildEmbedBlockMarkdown} from "./embedBlock";
 import type {EmbedQueryType} from "./embedBlock";
+import {renderTransactionBlock} from "./txBlockRenderer";
 
 export default class LedgerPlugin extends Plugin {
 
@@ -54,7 +55,7 @@ export default class LedgerPlugin extends Plugin {
     private topBarElement: HTMLElement | null = null;
     private statusBarElement: HTMLElement | null = null;
 
-    /** MutationObserver for injecting edit buttons into transaction blocks */
+    /** MutationObserver for rendering transaction blocks from IAL attributes */
     private txBlockObserver: MutationObserver | null = null;
     /** Debounce timer for MutationObserver callback */
     private txObserverDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -648,26 +649,31 @@ export default class LedgerPlugin extends Plugin {
     // ─── Transaction block DOM injection ────────────────────────────────────
 
     /**
-     * Set up a MutationObserver to inject edit buttons into transaction blocks
-     * whenever new DOM nodes appear. This replaces the unreliable
-     * loaded-protyle-static/dynamic EventBus events.
+     * Set up a MutationObserver to dynamically render transaction blocks.
+     *
+     * When new DOM nodes appear (e.g. protyle load, scroll, embed refresh),
+     * the observer triggers `renderTransactionBlocksGlobal()` which reads
+     * IAL attributes from each transaction block and overlays a rich HTML
+     * card.  This is the "data-driven" approach: the block stores data in
+     * attributes, and the UI is derived at runtime — so updating the plugin
+     * automatically updates every transaction block's visual appearance.
      */
     private setupTransactionBlockObserver() {
         this.txBlockObserver = new MutationObserver(() => {
             if (this.txObserverDebounceTimer) clearTimeout(this.txObserverDebounceTimer);
-            this.txObserverDebounceTimer = setTimeout(() => this.injectEditButtonsGlobal(), 200);
+            this.txObserverDebounceTimer = setTimeout(() => this.renderTransactionBlocksGlobal(), 200);
         });
         this.txBlockObserver.observe(document.body, {
             childList: true,
             subtree: true,
         });
         // Run once immediately for any blocks already on screen
-        this.injectEditButtonsGlobal();
+        this.renderTransactionBlocksGlobal();
     }
 
     /**
      * Set up a global double-click handler on transaction blocks to open the
-     * edit dialog. Works regardless of whether the edit button was injected.
+     * edit dialog. Works regardless of whether the card was rendered.
      */
     private setupDblClickHandler() {
         this.boundDblClickHandler = (e: MouseEvent) => {
@@ -687,29 +693,27 @@ export default class LedgerPlugin extends Plugin {
     }
 
     /**
-     * Scan the entire document for transaction blocks and inject an edit
-     * button in the upper-right corner of each one (idempotent).
+     * Scan the entire document for transaction blocks and render each one
+     * as a rich HTML card driven by the block's IAL attributes.
+     *
+     * The original markdown text (produced by `buildBlockContent()`) is
+     * preserved inside the block for non-plugin rendering; the card is an
+     * overlay that hides it visually while the plugin is active.
+     *
+     * Idempotent — blocks that already carry `.ledger-tx-rendered` are
+     * silently skipped by `renderTransactionBlock()`.
      */
-    private injectEditButtonsGlobal() {
+    private renderTransactionBlocksGlobal() {
         const blocks = document.querySelectorAll<HTMLElement>(
             `[${ATTR_TYPE}="${TRANSACTION_TYPE_VALUE}"]`,
         );
+        const config = this.dataService.getConfig();
         for (const block of blocks) {
-            // Skip if we already injected a button
-            if (block.querySelector(".ledger-edit-btn")) continue;
-            block.classList.add("ledger-tx-has-edit");
-            const btn = document.createElement("button");
-            btn.className = "ledger-edit-btn";
-            btn.title = this.i18n.editTransaction;
-            btn.textContent = "✏️";
-            btn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                const blockId = block.dataset.nodeId
-                    || block.closest("[data-node-id]")?.getAttribute("data-node-id");
-                if (blockId) this.openEditTransactionById(blockId);
+            renderTransactionBlock(block, {
+                config,
+                onEdit: (blockId) => this.openEditTransactionById(blockId),
+                editLabel: this.i18n.editTransaction,
             });
-            block.appendChild(btn);
         }
     }
 
