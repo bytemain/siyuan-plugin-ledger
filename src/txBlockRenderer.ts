@@ -80,6 +80,9 @@ export function renderTransactionBlock(
         "";
 
     // ── Compute derived values ───────────────────────────────────────────
+    // Sum of positive postings = the "transaction amount" shown in the card.
+    // In double-entry bookkeeping, debits + credits balance to zero, so the
+    // total of the positive side represents the movement of funds.
     const amount = postings
         .filter(p => p.amount > 0)
         .reduce((s, p) => s + p.amount, 0);

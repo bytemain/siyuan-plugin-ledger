@@ -39,7 +39,9 @@
 
 // ── Data-driven transaction card overlay ──────────────────────────────────────
 
-// Hide the original text when the card overlay is rendered
+// Hide the original text when the card overlay is rendered.
+// `!important` is required to override SiYuan's protyle editor styles
+// which set display/visibility on content-editable children.
 .ledger-tx-rendered > :not(.ledger-tx-card):not(.protyle-attr) {
   display: none !important;
 }
