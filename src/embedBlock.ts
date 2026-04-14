@@ -11,7 +11,9 @@
  */
 
 import {
-    ATTR_TYPE, ATTR_DATE, ATTR_PAYEE, TRANSACTION_TYPE_VALUE,
+    ATTR_TYPE, ATTR_DATE, ATTR_STATUS, ATTR_PAYEE, ATTR_NARRATION,
+    ATTR_POSTINGS, ATTR_TAGS, ATTR_UUID,
+    TRANSACTION_TYPE_VALUE,
     type ITransaction,
 } from "./types";
 
@@ -160,9 +162,9 @@ export function buildEmbedBlockMarkdown(jsCode: string): string {
 // ─── Transaction embed block ─────────────────────────────────────────────────
 
 /**
- * Serialisable subset of transaction data embedded in the `//!js` code.
- * Only includes fields needed for rendering — `blockId` is omitted because
- * it is not known at code-generation time.
+ * Rendering-ready subset of a transaction, derived at runtime from the
+ * block's IAL attributes.  `blockId` is intentionally omitted — the embed
+ * block reads its own node-id from the DOM at render time.
  */
 export interface ITransactionEmbedData {
     date: string;
@@ -179,41 +181,61 @@ export interface ITransactionEmbedData {
 }
 
 /**
+ * Convert raw IAL attributes (from `/api/attr/getBlockAttrs`) into the
+ * rendering data structure.  Returns `null` when the attributes do not
+ * describe a valid ledger transaction.
+ */
+export function attrsToTransactionData(
+    attrs: Record<string, string>,
+): ITransactionEmbedData | null {
+    if (attrs[ATTR_TYPE] !== TRANSACTION_TYPE_VALUE) return null;
+
+    let postings: ITransactionEmbedData["postings"] = [];
+    try {
+        postings = JSON.parse(attrs[ATTR_POSTINGS] || "[]");
+    } catch {
+        return null;
+    }
+
+    const tagsRaw = attrs[ATTR_TAGS] || "";
+
+    return {
+        date: attrs[ATTR_DATE] || "",
+        status: attrs[ATTR_STATUS] || "uncleared",
+        payee: attrs[ATTR_PAYEE] || "",
+        narration: attrs[ATTR_NARRATION] || "",
+        postings,
+        tags: tagsRaw ? tagsRaw.split(",").map(t => t.trim()).filter(Boolean) : [],
+        uuid: attrs[ATTR_UUID] || "",
+    };
+}
+
+/**
  * Build the `//!js` code that renders a single transaction block.
  *
- * The transaction data is serialised directly into the JS source so the
- * embed block is fully self-contained — it does not need to fetch its own
- * attributes at render time.
+ * The embed block is **data-driven from IAL attributes** — it reads its
+ * own block ID from the DOM, fetches the IAL attributes at render time,
+ * and passes them to `Ledger.renderTransaction()`.  This means editing a
+ * transaction only needs to update the attributes; the embed code is the
+ * same for every transaction block.
  *
- * At runtime the code calls `Ledger.renderTransaction(data, item)` which
- * is registered as a global by the plugin.  If the plugin is not loaded
- * the embed block simply returns `[]` (blank).
- *
- * Accepts both full `ITransaction` and `Omit<ITransaction, "blockId">`.
- * The `blockId` field (if present) is intentionally omitted from the
- * serialised output because the embed block's own block ID should not
- * be hard-coded into its JS content.
+ * The `_tx` parameter is accepted for API compatibility but is no longer
+ * serialised into the JS source.
  */
 export function buildTransactionEmbedCode(
-    tx: ITransaction | Omit<ITransaction, "blockId">,
+    _tx?: ITransaction | Omit<ITransaction, "blockId">,
 ): string {
-    const data: ITransactionEmbedData = {
-        date: tx.date,
-        status: tx.status,
-        payee: tx.payee,
-        narration: tx.narration || "",
-        postings: tx.postings.map(p => ({
-            account: p.account,
-            amount: p.amount,
-            currency: p.currency,
-        })),
-        tags: tx.tags || [],
-        uuid: tx.uuid,
-    };
-    const json = JSON.stringify(data);
     return `//!js
-if (typeof Ledger !== 'undefined' && Ledger.renderTransaction) {
-    Ledger.renderTransaction(${json}, item);
-}
-return [];`;
+const render = async () => {
+    if (typeof Ledger === 'undefined' || !Ledger.renderTransaction) return [];
+    const el = item.closest('[data-node-id]');
+    if (!el) return [];
+    const blockId = el.getAttribute('data-node-id');
+    if (!blockId) return [];
+    const res = await fetchSyncPost('/api/attr/getBlockAttrs', {id: blockId});
+    if (res.code !== 0 || !res.data) return [];
+    Ledger.renderTransaction(res.data, item);
+    return [];
+};
+return render();`;
 }

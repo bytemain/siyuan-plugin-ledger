@@ -44,7 +44,7 @@ import {openImportExportDialog} from "./importExportDialog";
 import {openAccountManagerDialog} from "./accountManagerDialog";
 import {buildDashboardHTML} from "./dashboard";
 import {exportToLedger, exportToBeancount, exportToCSV, downloadFile} from "./exportService";
-import {buildEmbedJsCode, buildEmbedBlockMarkdown} from "./embedBlock";
+import {buildEmbedJsCode, buildEmbedBlockMarkdown, attrsToTransactionData} from "./embedBlock";
 import type {EmbedQueryType, ITransactionEmbedData} from "./embedBlock";
 import {renderTransactionIntoContainer} from "./txBlockRenderer";
 
@@ -658,10 +658,30 @@ export default class LedgerPlugin extends Plugin {
             /**
              * Called from `//!js` code inside transaction embed blocks.
              *
-             * @param data  Transaction data object (serialised in the JS code)
-             * @param item  The embed block DOM element (SiYuan's `item` param)
+             * Accepts **either** raw IAL attributes (new data-driven path)
+             * or an `ITransactionEmbedData` object (legacy inline-JSON path)
+             * so that existing blocks keep working until they are migrated.
+             *
+             * @param dataOrAttrs  Raw IAL attrs or legacy embed data
+             * @param item         The embed block DOM element (SiYuan's `item` param)
              */
-            renderTransaction(data: ITransactionEmbedData, item: HTMLElement) {
+            renderTransaction(
+                dataOrAttrs: Record<string, string> | ITransactionEmbedData,
+                item: HTMLElement,
+            ) {
+                let data: ITransactionEmbedData | null;
+
+                // Discriminate: raw IAL attrs contain the ATTR_TYPE key
+                if (ATTR_TYPE in dataOrAttrs) {
+                    data = attrsToTransactionData(
+                        dataOrAttrs as Record<string, string>,
+                    );
+                } else {
+                    // Legacy ITransactionEmbedData (has "date" + "postings")
+                    data = dataOrAttrs as ITransactionEmbedData;
+                }
+
+                if (!data) return;
                 renderTransactionIntoContainer(data, item, config());
             },
         };
