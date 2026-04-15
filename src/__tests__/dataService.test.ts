@@ -1,5 +1,5 @@
 import {describe, it, expect} from "vitest";
-import {parseIAL, blockRowToTransaction, attributeMapToTransaction, attributeRowsToTransactions, generateUUID, buildBlockContent, DataService} from "../dataService";
+import {parseIAL, blockRowToTransaction, attributeMapToTransaction, attributeMapToPosting, attributeRowsToTransactions, generateUUID, buildBlockContent, DataService} from "../dataService";
 import type {IAttributeRow} from "../dataService";
 import {
     ATTR_TYPE,
@@ -10,7 +10,12 @@ import {
     ATTR_POSTINGS,
     ATTR_TAGS,
     ATTR_UUID,
+    ATTR_ACCOUNT,
+    ATTR_AMOUNT,
+    ATTR_CURRENCY,
+    ATTR_TX_ID,
     TRANSACTION_TYPE_VALUE,
+    POSTING_TYPE_VALUE,
     DEFAULT_CONFIG,
 } from "../types";
 import {ITransaction} from "../types";
@@ -226,6 +231,98 @@ describe("attributeMapToTransaction", () => {
         expect(tx?.postings[0].amount).toBe(196.9);
         expect(tx?.postings[1].account).toBe("Liabilities:CreditCard:CMB");
         expect(tx?.postings[1].amount).toBe(-196.9);
+    });
+});
+
+// ─── attributeMapToPosting ────────────────────────────────────────────────────
+
+describe("attributeMapToPosting", () => {
+    it("converts a valid posting attribute map to IPosting", () => {
+        const attrs = {
+            [ATTR_TYPE]: POSTING_TYPE_VALUE,
+            [ATTR_ACCOUNT]: "Expenses:Food:Coffee",
+            [ATTR_AMOUNT]: "32.50",
+            [ATTR_CURRENCY]: "CNY",
+            [ATTR_TX_ID]: "parent-block-1",
+        };
+        const p = attributeMapToPosting(attrs);
+        expect(p).not.toBeNull();
+        expect(p!.account).toBe("Expenses:Food:Coffee");
+        expect(p!.amount).toBe(32.5);
+        expect(p!.currency).toBe("CNY");
+    });
+
+    it("returns null when type is not 'posting'", () => {
+        const attrs = {
+            [ATTR_TYPE]: TRANSACTION_TYPE_VALUE,
+            [ATTR_ACCOUNT]: "Expenses:Food",
+            [ATTR_AMOUNT]: "10",
+            [ATTR_CURRENCY]: "CNY",
+        };
+        expect(attributeMapToPosting(attrs)).toBeNull();
+    });
+
+    it("returns null when account is missing", () => {
+        const attrs = {
+            [ATTR_TYPE]: POSTING_TYPE_VALUE,
+            [ATTR_AMOUNT]: "10",
+            [ATTR_CURRENCY]: "CNY",
+        };
+        expect(attributeMapToPosting(attrs)).toBeNull();
+    });
+
+    it("defaults currency to CNY when missing", () => {
+        const attrs = {
+            [ATTR_TYPE]: POSTING_TYPE_VALUE,
+            [ATTR_ACCOUNT]: "Assets:Cash",
+            [ATTR_AMOUNT]: "-50",
+        };
+        const p = attributeMapToPosting(attrs);
+        expect(p).not.toBeNull();
+        expect(p!.currency).toBe("CNY");
+        expect(p!.amount).toBe(-50);
+    });
+
+    it("defaults amount to 0 when missing", () => {
+        const attrs = {
+            [ATTR_TYPE]: POSTING_TYPE_VALUE,
+            [ATTR_ACCOUNT]: "Assets:Cash",
+            [ATTR_CURRENCY]: "USD",
+        };
+        const p = attributeMapToPosting(attrs);
+        expect(p).not.toBeNull();
+        expect(p!.amount).toBe(0);
+    });
+});
+
+// ─── attributeMapToTransaction with childPostings ────────────────────────────
+
+describe("attributeMapToTransaction with childPostings", () => {
+    it("prefers childPostings over legacy JSON blob", () => {
+        const childPostings = [
+            {account: "Expenses:Transport", amount: 50, currency: "CNY"},
+            {account: "Assets:Cash", amount: -50, currency: "CNY"},
+        ];
+        // SAMPLE_ATTRS has JSON blob postings for Food:Dining
+        const tx = attributeMapToTransaction("block-1", SAMPLE_ATTRS, childPostings);
+        expect(tx).not.toBeNull();
+        expect(tx!.postings).toHaveLength(2);
+        // Should use childPostings, not the JSON blob
+        expect(tx!.postings[0].account).toBe("Expenses:Transport");
+        expect(tx!.postings[1].account).toBe("Assets:Cash");
+    });
+
+    it("falls back to JSON blob when childPostings is empty", () => {
+        const tx = attributeMapToTransaction("block-1", SAMPLE_ATTRS, []);
+        expect(tx).not.toBeNull();
+        // Should fall back to JSON blob
+        expect(tx!.postings[0].account).toBe("Expenses:Food:Dining");
+    });
+
+    it("falls back to JSON blob when childPostings is undefined", () => {
+        const tx = attributeMapToTransaction("block-1", SAMPLE_ATTRS);
+        expect(tx).not.toBeNull();
+        expect(tx!.postings[0].account).toBe("Expenses:Food:Dining");
     });
 });
 

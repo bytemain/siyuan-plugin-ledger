@@ -112,11 +112,23 @@ export const ATTR_DATE = "custom-ledger-date";
 export const ATTR_STATUS = "custom-ledger-status";
 export const ATTR_PAYEE = "custom-ledger-payee";
 export const ATTR_NARRATION = "custom-ledger-narration";
+/** @deprecated Kept for backward-compatible migration reads; new writes use child posting blocks. */
 export const ATTR_POSTINGS = "custom-ledger-postings";
 export const ATTR_TAGS = "custom-ledger-tags";
 export const ATTR_UUID = "custom-ledger-uuid";
 
+// ─── Posting-level attribute names (child blocks) ───────────────────────────
+
+export const ATTR_ACCOUNT = "custom-ledger-account";
+export const ATTR_AMOUNT = "custom-ledger-amount";
+export const ATTR_CURRENCY = "custom-ledger-currency";
+/** Redundant FK back to the parent transaction block. */
+export const ATTR_TX_ID = "custom-ledger-tx-id";
+
+// ─── Type discriminator values ──────────────────────────────────────────────
+
 export const TRANSACTION_TYPE_VALUE = "transaction";
+export const POSTING_TYPE_VALUE = "posting";
 
 // ─── Tab / Dock type identifiers ─────────────────────────────────────────────
 

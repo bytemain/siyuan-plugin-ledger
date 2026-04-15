@@ -36,6 +36,12 @@ export interface IEmbedRenderContext {
     protyle?: { contentElement: HTMLElement };
     /** Saved scroll offset (injected into `//!js` as `top`) */
     top?: number;
+    /** Posting data fetched from child blocks (new model) */
+    postings?: Array<{
+        account: string;
+        amount: number;
+        currency: string;
+    }>;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────

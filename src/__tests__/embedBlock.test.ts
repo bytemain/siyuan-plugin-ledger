@@ -2,7 +2,8 @@ import {describe, it, expect} from "vitest";
 import {buildEmbedJsCode, buildEmbedBlockMarkdown, buildTransactionEmbedCode, attrsToTransactionData} from "../embedBlock";
 import {
     ATTR_TYPE, ATTR_DATE, ATTR_STATUS, ATTR_PAYEE, ATTR_NARRATION,
-    ATTR_POSTINGS, ATTR_TAGS, ATTR_UUID, TRANSACTION_TYPE_VALUE,
+    ATTR_POSTINGS, ATTR_TAGS, ATTR_UUID, ATTR_ACCOUNT,
+    TRANSACTION_TYPE_VALUE,
 } from "../types";
 
 describe("buildEmbedJsCode", () => {
@@ -53,11 +54,13 @@ describe("buildEmbedJsCode", () => {
         expect(code).not.toContain("LIMIT");
     });
 
-    it("generates byAccount query with account path", () => {
+    it("generates byAccount query with account path using posting child blocks", () => {
         const code = buildEmbedJsCode({type: "byAccount", param: "Expenses:Food"});
         expect(code).toContain("//!js");
         expect(code).toContain("Expenses:Food");
-        expect(code).toContain("custom-ledger-postings");
+        expect(code).toContain(ATTR_ACCOUNT);
+        // New model: queries posting child blocks via blocks.parent_id join
+        expect(code).toContain("parent_id");
     });
 
     it("generates byPayee query with payee name", () => {
@@ -135,6 +138,13 @@ describe("buildTransactionEmbedCode", () => {
         expect(code).toContain("Ledger.fetchBlockAttrs");
         // fetchSyncPost is passed as an argument so the global handles retries
         expect(code).toContain("fetchSyncPost");
+    });
+
+    it("fetches child posting blocks via Ledger.fetchChildPostings", () => {
+        const code = buildTransactionEmbedCode();
+        expect(code).toContain("Ledger.fetchChildPostings");
+        // Postings are passed to renderTransaction via the context
+        expect(code).toContain("postings");
     });
 
     it("does not embed transaction-specific data in the JS code", () => {
@@ -283,5 +293,37 @@ describe("attrsToTransactionData", () => {
         const data = attrsToTransactionData(attrs);
         expect(data).not.toBeNull();
         expect(data!.tags).toEqual(["daily", "coffee"]);
+    });
+
+    it("uses childPostings when provided (new child-block model)", () => {
+        const childPostings = [
+            {account: "Expenses:Transport", amount: 50, currency: "USD"},
+        ];
+        const data = attrsToTransactionData(validAttrs, childPostings);
+        expect(data).not.toBeNull();
+        // Should use childPostings instead of JSON blob
+        expect(data!.postings).toHaveLength(1);
+        expect(data!.postings[0].account).toBe("Expenses:Transport");
+        expect(data!.postings[0].currency).toBe("USD");
+    });
+
+    it("falls back to JSON blob when childPostings is empty", () => {
+        const data = attrsToTransactionData(validAttrs, []);
+        expect(data).not.toBeNull();
+        // Should fall back to JSON blob
+        expect(data!.postings).toHaveLength(2);
+        expect(data!.postings[0].account).toBe("Expenses:Food:Coffee");
+    });
+
+    it("does not fail on invalid JSON when childPostings are provided", () => {
+        const attrs = {...validAttrs, [ATTR_POSTINGS]: "not-json"};
+        const childPostings = [
+            {account: "Expenses:Food", amount: 10, currency: "CNY"},
+        ];
+        // With childPostings, the invalid JSON blob is never parsed
+        const data = attrsToTransactionData(attrs, childPostings);
+        expect(data).not.toBeNull();
+        expect(data!.postings).toHaveLength(1);
+        expect(data!.postings[0].account).toBe("Expenses:Food");
     });
 });

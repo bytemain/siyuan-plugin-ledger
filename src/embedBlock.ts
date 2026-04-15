@@ -13,6 +13,7 @@
 import {
     ATTR_TYPE, ATTR_DATE, ATTR_STATUS, ATTR_PAYEE, ATTR_NARRATION,
     ATTR_POSTINGS, ATTR_TAGS, ATTR_UUID,
+    ATTR_ACCOUNT,
     TRANSACTION_TYPE_VALUE,
     type ITransaction,
 } from "./types";
@@ -108,11 +109,12 @@ return query();`;
 
 function buildByAccountQuery(accountPath: string): string {
     const safe = escapeSqlLikeValue(accountPath);
-    // Search for transactions whose ATTR_POSTINGS JSON contains the account path
+    // Query posting child blocks by account attribute, then find their parent
+    // transaction blocks via blocks.parent_id.
     return `//!js
 const query = async () => {
     const res = await fetchSyncPost("/api/query/sql", {
-        stmt: "SELECT DISTINCT a1.block_id, a2.value as dt FROM attributes a1 JOIN attributes a2 ON a1.block_id = a2.block_id JOIN attributes a3 ON a1.block_id = a3.block_id WHERE a1.name = '${ATTR_TYPE}' AND a1.value = '${TRANSACTION_TYPE_VALUE}' AND a2.name = '${ATTR_DATE}' AND a3.name = 'custom-ledger-postings' AND a3.value LIKE '%${safe}%' ESCAPE '\\\\' ORDER BY a2.value DESC"
+        stmt: "SELECT DISTINCT b.parent_id AS block_id, a2.value AS dt FROM attributes a1 JOIN blocks b ON a1.block_id = b.id JOIN attributes a2 ON b.parent_id = a2.block_id WHERE a1.name = '${ATTR_ACCOUNT}' AND a1.value LIKE '${safe}%' ESCAPE '\\\\' AND a2.name = '${ATTR_DATE}' ORDER BY a2.value DESC"
     });
     if (res.code !== 0) return [];
     return (res.data || []).map(r => r.block_id);
@@ -184,17 +186,25 @@ export interface ITransactionEmbedData {
  * Convert raw IAL attributes (from `/api/attr/getBlockAttrs`) into the
  * rendering data structure.  Returns `null` when the attributes do not
  * describe a valid ledger transaction.
+ *
+ * If `childPostings` are provided (from child blocks), they take precedence
+ * over the legacy ATTR_POSTINGS JSON blob.
  */
 export function attrsToTransactionData(
     attrs: Record<string, string>,
+    childPostings?: ITransactionEmbedData["postings"],
 ): ITransactionEmbedData | null {
     if (attrs[ATTR_TYPE] !== TRANSACTION_TYPE_VALUE) return null;
 
     let postings: ITransactionEmbedData["postings"] = [];
-    try {
-        postings = JSON.parse(attrs[ATTR_POSTINGS] || "[]");
-    } catch {
-        return null;
+    if (childPostings && childPostings.length > 0) {
+        postings = childPostings;
+    } else {
+        try {
+            postings = JSON.parse(attrs[ATTR_POSTINGS] || "[]");
+        } catch {
+            return null;
+        }
     }
 
     const tagsRaw = attrs[ATTR_TAGS] || "";
@@ -215,9 +225,8 @@ export function attrsToTransactionData(
  *
  * The embed block is **data-driven from IAL attributes** — it reads its
  * own block ID from the DOM, fetches the IAL attributes at render time,
- * and passes them to `Ledger.renderTransaction()`.  This means editing a
- * transaction only needs to update the attributes; the embed code is the
- * same for every transaction block.
+ * and also fetches child posting blocks via `blocks.parent_id`.
+ * It passes everything to `Ledger.renderTransaction()`.
  *
  * The `_tx` parameter is accepted for API compatibility but is no longer
  * serialised into the JS source.
@@ -228,9 +237,6 @@ export function buildTransactionEmbedCode(
     // After successful rendering, return undefined (not []) so that SiYuan's
     // blockRender skips its own embed rendering and does NOT show the yellow
     // "不存在符合条件的内容块" fallback message.
-    // See: siyuan-note/siyuan app/src/protyle/render/blockRender.ts — when
-    // the //!js Promise resolves to a non-array value, SiYuan simply returns
-    // without calling renderEmbed(), preserving the plugin's custom DOM.
     return `//!js
 const render = async () => {
     if (typeof Ledger === 'undefined' || !Ledger.renderTransaction) return [];
@@ -240,7 +246,8 @@ const render = async () => {
     if (!blockId) return [];
     const attrs = await Ledger.fetchBlockAttrs(blockId, fetchSyncPost);
     if (!attrs) return [];
-    Ledger.renderTransaction(attrs, item, { blockId, protyle, top });
+    const postings = await Ledger.fetchChildPostings(blockId, fetchSyncPost);
+    Ledger.renderTransaction(attrs, item, { blockId, protyle, top, postings });
     return undefined;
 };
 return render();`;

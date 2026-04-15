@@ -17,7 +17,12 @@ import {
     ATTR_POSTINGS,
     ATTR_TAGS,
     ATTR_UUID,
+    ATTR_ACCOUNT,
+    ATTR_AMOUNT,
+    ATTR_CURRENCY,
+    ATTR_TX_ID,
     TRANSACTION_TYPE_VALUE,
+    POSTING_TYPE_VALUE,
     DEFAULT_CONFIG,
 } from "./types";
 import {DEFAULT_ACCOUNTS} from "./defaultAccounts";
@@ -49,18 +54,34 @@ export interface IAttributeRow {
     value: string;
 }
 
+/** Row shape for block queries that include parent_id */
+export interface IBlockRow {
+    id: string;
+    parent_id: string;
+}
+
 /**
  * Convert an attribute name→value map (already structured) into an ITransaction.
  * Values come from the `attributes` table and are NOT IAL-escaped.
+ *
+ * Supports both the legacy JSON-blob model (ATTR_POSTINGS) and the new
+ * child-block model (postings supplied externally via `childPostings`).
  */
 export function attributeMapToTransaction(
     blockId: string,
     attrs: Record<string, string>,
+    childPostings?: IPosting[],
 ): ITransaction | null {
     try {
         if (attrs[ATTR_TYPE] !== TRANSACTION_TYPE_VALUE) return null;
 
-        const postings: IPosting[] = JSON.parse(attrs[ATTR_POSTINGS] || "[]");
+        // Prefer child-block postings; fall back to legacy JSON blob
+        let postings: IPosting[];
+        if (childPostings && childPostings.length > 0) {
+            postings = childPostings;
+        } else {
+            postings = JSON.parse(attrs[ATTR_POSTINGS] || "[]");
+        }
         const tagsRaw = attrs[ATTR_TAGS] || "";
 
         return {
@@ -79,7 +100,24 @@ export function attributeMapToTransaction(
 }
 
 /**
+ * Convert a posting child block's attribute map into an IPosting.
+ */
+export function attributeMapToPosting(
+    attrs: Record<string, string>,
+): IPosting | null {
+    if (attrs[ATTR_TYPE] !== POSTING_TYPE_VALUE) return null;
+    const account = attrs[ATTR_ACCOUNT];
+    if (!account) return null;
+    return {
+        account,
+        amount: parseFloat(attrs[ATTR_AMOUNT] || "0"),
+        currency: attrs[ATTR_CURRENCY] || "CNY",
+    };
+}
+
+/**
  * Group flat attribute rows by block_id and convert each group into an ITransaction.
+ * This is the legacy path that reads postings from the ATTR_POSTINGS JSON blob.
  */
 export function attributeRowsToTransactions(rows: IAttributeRow[]): ITransaction[] {
     const groups = new Map<string, Record<string, string>>();
@@ -279,12 +317,12 @@ export class DataService {
     }
 
     /**
-     * Insert a new transaction as an embed block.
+     * Insert a new transaction as an embed block with child posting blocks.
      *
-     * The block's `//!js` code embeds the transaction data directly and
-     * calls `Ledger.renderTransaction()` at render time.  IAL attributes
-     * are set separately so that listing embed blocks (monthly, recent,
-     * etc.) can still query transactions via the `attributes` table.
+     * Creates a parent embed block for the transaction header, then creates
+     * one child block per posting.  Each block has its own IAL attributes
+     * so SiYuan's `attributes` table can be queried relationally using
+     * `blocks.parent_id` for the 1:N join.
      */
     async insertTransaction(
         tx: Omit<ITransaction, "blockId">,
@@ -298,7 +336,7 @@ export class DataService {
         const jsCode = buildTransactionEmbedCode(fullTx);
         const markdown = buildEmbedBlockMarkdown(jsCode);
 
-        return new Promise((resolve, reject) => {
+        const blockId: string = await new Promise((resolve, reject) => {
             fetchPost(
                 "/api/block/insertBlock",
                 {
@@ -312,26 +350,28 @@ export class DataService {
                         reject(new Error(res.msg));
                         return;
                     }
-                    const blockId: string = res.data[0]?.doOperations[0]?.id;
-                    if (!blockId) {
+                    const id: string = res.data[0]?.doOperations[0]?.id;
+                    if (!id) {
                         reject(new Error("No block ID returned"));
                         return;
                     }
-                    fullTx.blockId = blockId;
-                    this.setTransactionAttrs(blockId, fullTx).then(() => {
-                        this.updateCacheAfterInsert(fullTx);
-                        resolve(blockId);
-                    }).catch(reject);
+                    resolve(id);
                 },
             );
         });
+
+        fullTx.blockId = blockId;
+        await this.setTransactionAttrs(blockId, fullTx);
+        await this.insertPostingChildBlocks(blockId, fullTx.postings);
+        this.updateCacheAfterInsert(fullTx);
+        return blockId;
     }
 
     /**
      * Update an existing transaction embed block.
      *
-     * Regenerates the `//!js` code with the new transaction data and
-     * updates both the block content and the IAL attributes.
+     * Regenerates the `//!js` code, updates the IAL attributes, then
+     * replaces all child posting blocks (delete old, insert new).
      */
     async updateTransaction(tx: ITransaction): Promise<void> {
         const jsCode = buildTransactionEmbedCode(tx);
@@ -349,9 +389,19 @@ export class DataService {
             );
         });
         await this.setTransactionAttrs(tx.blockId, tx);
+
+        // Replace posting child blocks
+        await this.deleteChildBlocks(tx.blockId);
+        await this.insertPostingChildBlocks(tx.blockId, tx.postings);
     }
 
+    /**
+     * Delete a transaction and all its child posting blocks.
+     */
     async deleteTransaction(blockId: string): Promise<void> {
+        // Delete child posting blocks first
+        await this.deleteChildBlocks(blockId);
+        // Delete the parent transaction block
         return new Promise((resolve, reject) => {
             fetchPost(
                 "/api/block/deleteBlock",
@@ -363,6 +413,10 @@ export class DataService {
 
     // ─── Attributes ──────────────────────────────────────────────────────
 
+    /**
+     * Set transaction-level attributes on the parent block.
+     * No longer writes the JSON blob — postings live in child blocks.
+     */
     private async setTransactionAttrs(blockId: string, tx: ITransaction): Promise<void> {
         const attrs: Record<string, string> = {
             [ATTR_TYPE]: TRANSACTION_TYPE_VALUE,
@@ -370,7 +424,6 @@ export class DataService {
             [ATTR_STATUS]: tx.status,
             [ATTR_PAYEE]: tx.payee,
             [ATTR_NARRATION]: tx.narration || "",
-            [ATTR_POSTINGS]: JSON.stringify(tx.postings),
             [ATTR_TAGS]: (tx.tags || []).join(","),
             [ATTR_UUID]: tx.uuid,
         };
@@ -379,6 +432,110 @@ export class DataService {
                 "/api/attr/setBlockAttrs",
                 {id: blockId, attrs},
                 (res) => (res.code === 0 ? resolve() : reject(new Error(res.msg))),
+            );
+        });
+    }
+
+    // ─── Posting child block helpers ─────────────────────────────────────
+
+    /**
+     * Insert one hidden paragraph child block per posting under the
+     * transaction block and set posting-level attributes on each.
+     */
+    private async insertPostingChildBlocks(
+        txBlockId: string,
+        postings: IPosting[],
+    ): Promise<void> {
+        let previousID = "";
+        for (const posting of postings) {
+            // Insert a minimal paragraph block as a child
+            const childId: string = await new Promise((resolve, reject) => {
+                fetchPost(
+                    "/api/block/insertBlock",
+                    {
+                        dataType: "markdown",
+                        data: " ",  // minimal non-empty content
+                        parentID: txBlockId,
+                        previousID: previousID,
+                    },
+                    (res) => {
+                        if (res.code !== 0) {
+                            reject(new Error(res.msg));
+                            return;
+                        }
+                        const id: string = res.data[0]?.doOperations[0]?.id;
+                        if (!id) {
+                            reject(new Error("No child block ID returned"));
+                            return;
+                        }
+                        resolve(id);
+                    },
+                );
+            });
+            await this.setPostingAttrs(childId, txBlockId, posting);
+            previousID = childId;
+        }
+    }
+
+    /**
+     * Set posting-level attributes on a child block.
+     */
+    private async setPostingAttrs(
+        childBlockId: string,
+        txBlockId: string,
+        posting: IPosting,
+    ): Promise<void> {
+        const attrs: Record<string, string> = {
+            [ATTR_TYPE]: POSTING_TYPE_VALUE,
+            [ATTR_ACCOUNT]: posting.account,
+            [ATTR_AMOUNT]: String(posting.amount),
+            [ATTR_CURRENCY]: posting.currency,
+            [ATTR_TX_ID]: txBlockId,
+        };
+        return new Promise((resolve, reject) => {
+            fetchPost(
+                "/api/attr/setBlockAttrs",
+                {id: childBlockId, attrs},
+                (res) => (res.code === 0 ? resolve() : reject(new Error(res.msg))),
+            );
+        });
+    }
+
+    /**
+     * Delete all child blocks of a given parent block (posting blocks).
+     * Uses SQL query on `blocks.parent_id` to find children.
+     */
+    private async deleteChildBlocks(parentBlockId: string): Promise<void> {
+        const childIds = await this.queryChildBlockIds(parentBlockId);
+        for (const id of childIds) {
+            await new Promise<void>((resolve, reject) => {
+                fetchPost(
+                    "/api/block/deleteBlock",
+                    {id},
+                    (res) => (res.code === 0 ? resolve() : reject(new Error(res.msg))),
+                );
+            });
+        }
+    }
+
+    /**
+     * Query all direct child block IDs of a parent block.
+     */
+    private queryChildBlockIds(parentBlockId: string): Promise<string[]> {
+        return new Promise((resolve, reject) => {
+            fetchPost(
+                "/api/query/sql",
+                {
+                    stmt: `SELECT id FROM blocks WHERE parent_id = '${parentBlockId}'`,
+                },
+                (res) => {
+                    if (res.code !== 0) {
+                        reject(new Error(res.msg));
+                        return;
+                    }
+                    const ids = (res.data || []).map((r: { id: string }) => r.id);
+                    resolve(ids);
+                },
             );
         });
     }
@@ -403,14 +560,105 @@ export class DataService {
             .replace(/_/g, "\\_");    // escape LIKE wildcard
     }
 
-    async queryAllTransactions(): Promise<ITransaction[]> {
+    /**
+     * Assemble ITransaction objects from transaction-level attribute rows
+     * by fetching child posting blocks via `blocks.parent_id`.
+     *
+     * Step 1: Group tx-level attrs by block_id.
+     * Step 2: For each tx block, query child posting blocks and their attrs.
+     * Step 3: Combine into ITransaction with proper postings array.
+     *
+     * Falls back to legacy ATTR_POSTINGS JSON blob when no child postings exist.
+     */
+    private async assembleTransactionsWithPostings(
+        txAttrRows: IAttributeRow[],
+    ): Promise<ITransaction[]> {
+        // Group transaction-level attributes by block_id
+        const txGroups = new Map<string, Record<string, string>>();
+        for (const row of txAttrRows) {
+            let map = txGroups.get(row.block_id);
+            if (!map) {
+                map = {};
+                txGroups.set(row.block_id, map);
+            }
+            map[row.name] = row.value;
+        }
+
+        if (txGroups.size === 0) return [];
+
+        // Batch-query all posting child blocks for all tx blocks at once.
+        // Uses: blocks.parent_id IN (...txBlockIds...)
+        const txBlockIds = [...txGroups.keys()];
+        const postingRows = await this.queryPostingAttributesByTxIds(txBlockIds);
+
+        // Group posting attrs by parent tx block_id → child block_id → attrs
+        const postingsByTx = new Map<string, Map<string, Record<string, string>>>();
+        for (const row of postingRows) {
+            const parentId = row.parent_id;
+            let childMap = postingsByTx.get(parentId);
+            if (!childMap) {
+                childMap = new Map();
+                postingsByTx.set(parentId, childMap);
+            }
+            let attrMap = childMap.get(row.block_id);
+            if (!attrMap) {
+                attrMap = {};
+                childMap.set(row.block_id, attrMap);
+            }
+            attrMap[row.name] = row.value;
+        }
+
+        const txns: ITransaction[] = [];
+        for (const [blockId, attrs] of txGroups) {
+            // Build postings from child blocks
+            const childMap = postingsByTx.get(blockId);
+            const childPostings: IPosting[] = [];
+            if (childMap) {
+                for (const [, childAttrs] of childMap) {
+                    const p = attributeMapToPosting(childAttrs);
+                    if (p) childPostings.push(p);
+                }
+            }
+            const tx = attributeMapToTransaction(blockId, attrs, childPostings);
+            if (tx) txns.push(tx);
+        }
+        return txns;
+    }
+
+    /**
+     * Batch-query all posting child block attributes for a set of transaction block IDs.
+     * Returns rows with { block_id, parent_id, name, value }.
+     */
+    private queryPostingAttributesByTxIds(
+        txBlockIds: string[],
+    ): Promise<Array<{ block_id: string; parent_id: string; name: string; value: string }>> {
+        if (txBlockIds.length === 0) return Promise.resolve([]);
+
+        // Build a safe IN clause — block IDs are system-generated hex strings
+        const inClause = txBlockIds.map(id => `'${id}'`).join(",");
+
         return new Promise((resolve, reject) => {
             fetchPost(
                 "/api/query/sql",
                 {
-                    // Use the `attributes` table which stores structured key-value pairs
-                    // (no IAL escaping issues). ATTR_TYPE and TRANSACTION_TYPE_VALUE are
-                    // compile-time constants, safe to interpolate.
+                    stmt: `SELECT a.block_id, b.parent_id, a.name, a.value FROM attributes a JOIN blocks b ON a.block_id = b.id WHERE b.parent_id IN (${inClause}) AND a.name LIKE 'custom-ledger-%'`,
+                },
+                (res) => {
+                    if (res.code !== 0) {
+                        reject(new Error(res.msg));
+                        return;
+                    }
+                    resolve(res.data || []);
+                },
+            );
+        });
+    }
+
+    async queryAllTransactions(): Promise<ITransaction[]> {
+        const txAttrRows: IAttributeRow[] = await new Promise((resolve, reject) => {
+            fetchPost(
+                "/api/query/sql",
+                {
                     stmt: `SELECT block_id, name, value FROM attributes WHERE block_id IN (SELECT block_id FROM attributes WHERE name = '${ATTR_TYPE}' AND value = '${TRANSACTION_TYPE_VALUE}') ORDER BY block_id DESC`,
                 },
                 (res) => {
@@ -418,11 +666,11 @@ export class DataService {
                         reject(new Error(res.msg));
                         return;
                     }
-                    const rows: IAttributeRow[] = res.data || [];
-                    resolve(attributeRowsToTransactions(rows));
+                    resolve(res.data || []);
                 },
             );
         });
+        return this.assembleTransactionsWithPostings(txAttrRows);
     }
 
     async queryTransactionsByMonth(yearMonth: string): Promise<ITransaction[]> {
@@ -431,7 +679,7 @@ export class DataService {
             return Promise.reject(new Error(`Invalid yearMonth format: ${yearMonth}`));
         }
         const safeYearMonth = this.sanitizeLikeParam(yearMonth);
-        return new Promise((resolve, reject) => {
+        const txAttrRows: IAttributeRow[] = await new Promise((resolve, reject) => {
             fetchPost(
                 "/api/query/sql",
                 {
@@ -442,16 +690,16 @@ export class DataService {
                         reject(new Error(res.msg));
                         return;
                     }
-                    const rows: IAttributeRow[] = res.data || [];
-                    resolve(attributeRowsToTransactions(rows));
+                    resolve(res.data || []);
                 },
             );
         });
+        return this.assembleTransactionsWithPostings(txAttrRows);
     }
 
     async queryTransactionsByPayee(payee: string): Promise<ITransaction[]> {
         const safePayee = this.sanitizeLikeParam(payee);
-        return new Promise((resolve, reject) => {
+        const txAttrRows: IAttributeRow[] = await new Promise((resolve, reject) => {
             fetchPost(
                 "/api/query/sql",
                 {
@@ -462,11 +710,11 @@ export class DataService {
                         reject(new Error(res.msg));
                         return;
                     }
-                    const rows: IAttributeRow[] = res.data || [];
-                    resolve(attributeRowsToTransactions(rows));
+                    resolve(res.data || []);
                 },
             );
         });
+        return this.assembleTransactionsWithPostings(txAttrRows);
     }
 
     // ─── Balance calculation ──────────────────────────────────────────────
@@ -746,5 +994,62 @@ export class DataService {
 
     today(): string {
         return new Date().toISOString().slice(0, 10);
+    }
+
+    // ─── Migration ──────────────────────────────────────────────────────
+
+    /**
+     * Migrate legacy transactions that store postings as a JSON blob
+     * (`custom-ledger-postings`) to the new child-block model.
+     *
+     * For each transaction block that has ATTR_POSTINGS but no child
+     * posting blocks, this method creates child blocks and removes the
+     * legacy attribute.
+     *
+     * @returns The number of transactions migrated.
+     */
+    async migrateJsonBlobToChildBlocks(): Promise<number> {
+        // Find all transaction blocks that still have the legacy ATTR_POSTINGS
+        const legacyRows: IAttributeRow[] = await new Promise((resolve, reject) => {
+            fetchPost(
+                "/api/query/sql",
+                {
+                    stmt: `SELECT block_id, name, value FROM attributes WHERE block_id IN (SELECT a1.block_id FROM attributes a1 JOIN attributes a2 ON a1.block_id = a2.block_id WHERE a1.name = '${ATTR_TYPE}' AND a1.value = '${TRANSACTION_TYPE_VALUE}' AND a2.name = '${ATTR_POSTINGS}') ORDER BY block_id`,
+                },
+                (res) => {
+                    if (res.code !== 0) {
+                        reject(new Error(res.msg));
+                        return;
+                    }
+                    resolve(res.data || []);
+                },
+            );
+        });
+
+        // Build legacy transactions using JSON blob
+        const legacyTxns = attributeRowsToTransactions(legacyRows);
+        let migrated = 0;
+
+        for (const tx of legacyTxns) {
+            // Check if child posting blocks already exist
+            const childIds = await this.queryChildBlockIds(tx.blockId);
+            if (childIds.length > 0) continue; // already migrated
+
+            // Create child posting blocks
+            await this.insertPostingChildBlocks(tx.blockId, tx.postings);
+
+            // Remove the legacy ATTR_POSTINGS attribute by setting it to empty
+            await new Promise<void>((resolve, reject) => {
+                fetchPost(
+                    "/api/attr/setBlockAttrs",
+                    {id: tx.blockId, attrs: {[ATTR_POSTINGS]: ""}},
+                    (res) => (res.code === 0 ? resolve() : reject(new Error(res.msg))),
+                );
+            });
+
+            migrated++;
+        }
+
+        return migrated;
     }
 }

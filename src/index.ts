@@ -35,7 +35,11 @@ import {
     ATTR_POSTINGS,
     ATTR_TAGS,
     ATTR_UUID,
+    ATTR_ACCOUNT,
+    ATTR_AMOUNT,
+    ATTR_CURRENCY,
     TRANSACTION_TYPE_VALUE,
+    POSTING_TYPE_VALUE,
 } from "./types";
 import {DataService} from "./dataService";
 import {DEFAULT_ACCOUNTS} from "./defaultAccounts";
@@ -692,6 +696,48 @@ export default class LedgerPlugin extends Plugin {
             },
 
             /**
+             * Fetch child posting blocks for a transaction block.
+             *
+             * Uses `blocks.parent_id` to find child blocks, then reads
+             * their posting-level attributes to build the postings array.
+             *
+             * @param blockId         Parent transaction block ID
+             * @param fetchSyncPostFn The `fetchSyncPost` injected by `//!js`
+             * @returns Array of posting objects, or empty array on failure
+             */
+            async fetchChildPostings(
+                blockId: string,
+                fetchSyncPostFn: (url: string, data: unknown) => Promise<{ code: number; data?: Array<Record<string, string>> }>,
+            ): Promise<Array<{ account: string; amount: number; currency: string }>> {
+                const res = await fetchSyncPostFn("/api/query/sql", {
+                    stmt: `SELECT a.block_id, a.name, a.value FROM attributes a JOIN blocks b ON a.block_id = b.id WHERE b.parent_id = '${blockId}' AND a.name LIKE 'custom-ledger-%'`,
+                });
+                if (res.code !== 0 || !res.data) return [];
+
+                // Group by child block_id
+                const groups = new Map<string, Record<string, string>>();
+                for (const row of res.data) {
+                    const childId = row.block_id;
+                    let m = groups.get(childId);
+                    if (!m) { m = {}; groups.set(childId, m); }
+                    m[row.name] = row.value;
+                }
+
+                const postings: Array<{ account: string; amount: number; currency: string }> = [];
+                for (const [, attrs] of groups) {
+                    if (attrs[ATTR_TYPE] !== POSTING_TYPE_VALUE) continue;
+                    const account = attrs[ATTR_ACCOUNT];
+                    if (!account) continue;
+                    postings.push({
+                        account,
+                        amount: parseFloat(attrs[ATTR_AMOUNT] || "0"),
+                        currency: attrs[ATTR_CURRENCY] || "CNY",
+                    });
+                }
+                return postings;
+            },
+
+            /**
              * Called from `//!js` code inside transaction embed blocks.
              *
              * Accepts **either** raw IAL attributes (new data-driven path)
@@ -711,8 +757,10 @@ export default class LedgerPlugin extends Plugin {
 
                 // Discriminate: raw IAL attrs contain the ATTR_TYPE key
                 if (ATTR_TYPE in dataOrAttrs) {
+                    // Use child postings from embedCtx if available
                     data = attrsToTransactionData(
                         dataOrAttrs as Record<string, string>,
+                        embedCtx?.postings,
                     );
                 } else {
                     // Legacy ITransactionEmbedData (has "date" + "postings")
@@ -763,26 +811,56 @@ export default class LedgerPlugin extends Plugin {
             if (res.code !== 0) return;
             const attrs = res.data || {};
 
-            let postings: ITransaction["postings"] = [];
-            try {
-                postings = JSON.parse(attrs[ATTR_POSTINGS] || "[]");
-            } catch {
-                // keep empty
-            }
-            const tagsRaw = attrs[ATTR_TAGS] || "";
+            // Try to fetch child posting blocks (new model)
+            fetchPost("/api/query/sql", {
+                stmt: `SELECT a.block_id, a.name, a.value FROM attributes a JOIN blocks b ON a.block_id = b.id WHERE b.parent_id = '${blockId}' AND a.name LIKE 'custom-ledger-%'`,
+            }, (postingRes) => {
+                let postings: ITransaction["postings"] = [];
 
-            const tx: ITransaction = {
-                blockId,
-                uuid: attrs[ATTR_UUID] || blockId,
-                date: attrs[ATTR_DATE] || "",
-                status: (attrs[ATTR_STATUS] as ITransaction["status"]) || "uncleared",
-                payee: attrs[ATTR_PAYEE] || "",
-                narration: attrs[ATTR_NARRATION] || "",
-                postings,
-                tags: tagsRaw ? tagsRaw.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
-            };
+                if (postingRes.code === 0 && postingRes.data && postingRes.data.length > 0) {
+                    // New model: build postings from child blocks
+                    const groups = new Map<string, Record<string, string>>();
+                    for (const row of postingRes.data) {
+                        let m = groups.get(row.block_id);
+                        if (!m) { m = {}; groups.set(row.block_id, m); }
+                        m[row.name] = row.value;
+                    }
+                    for (const [, childAttrs] of groups) {
+                        if (childAttrs[ATTR_TYPE] !== POSTING_TYPE_VALUE) continue;
+                        const account = childAttrs[ATTR_ACCOUNT];
+                        if (!account) continue;
+                        postings.push({
+                            account,
+                            amount: parseFloat(childAttrs[ATTR_AMOUNT] || "0"),
+                            currency: childAttrs[ATTR_CURRENCY] || "CNY",
+                        });
+                    }
+                }
 
-            this.openEditDialog(tx);
+                if (postings.length === 0) {
+                    // Fall back to legacy JSON blob
+                    try {
+                        postings = JSON.parse(attrs[ATTR_POSTINGS] || "[]");
+                    } catch {
+                        // keep empty
+                    }
+                }
+
+                const tagsRaw = attrs[ATTR_TAGS] || "";
+
+                const tx: ITransaction = {
+                    blockId,
+                    uuid: attrs[ATTR_UUID] || blockId,
+                    date: attrs[ATTR_DATE] || "",
+                    status: (attrs[ATTR_STATUS] as ITransaction["status"]) || "uncleared",
+                    payee: attrs[ATTR_PAYEE] || "",
+                    narration: attrs[ATTR_NARRATION] || "",
+                    postings,
+                    tags: tagsRaw ? tagsRaw.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
+                };
+
+                this.openEditDialog(tx);
+            });
         });
     }
 
