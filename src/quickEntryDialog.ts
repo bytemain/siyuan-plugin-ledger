@@ -97,6 +97,29 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
     const splitSectionId = "ledger-split-section";
     const splitToggleId = "ledger-split-toggle";
 
+    const payeeRow = `<div class="ledger-form-row">
+    <label class="ledger-label">${isTransfer ? i18n.transferDescription : i18n.payee}</label>
+    <input id="ledger-payee" class="b3-text-field fn__block" type="text" placeholder="${isTransfer ? i18n.transferDescPlaceholder : i18n.payeePlaceholder}" autocomplete="off">
+  </div>`;
+
+    const amountRow = `<div class="ledger-form-row">
+    <label class="ledger-label">${i18n.amount}</label>
+    <div style="display:flex;gap:8px;">
+      <input id="ledger-amount" class="b3-text-field" type="number" min="0" step="0.01" placeholder="0.00" style="flex:1">
+      <select id="ledger-currency" class="b3-select" style="width:80px;">
+        <option value="CNY" ${config.defaultCurrency === "CNY" ? "selected" : ""}>CNY</option>
+        <option value="USD" ${config.defaultCurrency === "USD" ? "selected" : ""}>USD</option>
+        <option value="EUR" ${config.defaultCurrency === "EUR" ? "selected" : ""}>EUR</option>
+        <option value="GBP" ${config.defaultCurrency === "GBP" ? "selected" : ""}>GBP</option>
+        <option value="JPY" ${config.defaultCurrency === "JPY" ? "selected" : ""}>JPY</option>
+        <option value="HKD" ${config.defaultCurrency === "HKD" ? "selected" : ""}>HKD</option>
+      </select>
+    </div>
+  </div>`;
+
+    // For expense mode, show amount first (more intuitive); otherwise payee first
+    const payeeAmountRows = isExpense ? amountRow + payeeRow : payeeRow + amountRow;
+
     const content = `<div class="b3-dialog__content ledger-dialog">
   <div class="ledger-form-row">
     <label class="ledger-label">${i18n.date}</label>
@@ -110,24 +133,7 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
       <option value="uncleared">~ ${i18n.uncleared}</option>
     </select>
   </div>
-  <div class="ledger-form-row">
-    <label class="ledger-label">${isTransfer ? i18n.transferDescription : i18n.payee}</label>
-    <input id="ledger-payee" class="b3-text-field fn__block" type="text" placeholder="${isTransfer ? i18n.transferDescPlaceholder : i18n.payeePlaceholder}" autocomplete="off">
-  </div>
-  <div class="ledger-form-row">
-    <label class="ledger-label">${i18n.amount}</label>
-    <div style="display:flex;gap:8px;">
-      <input id="ledger-amount" class="b3-text-field" type="number" min="0" step="0.01" placeholder="0.00" style="flex:1">
-      <select id="ledger-currency" class="b3-select" style="width:80px;">
-        <option value="CNY" ${config.defaultCurrency === "CNY" ? "selected" : ""}>CNY</option>
-        <option value="USD" ${config.defaultCurrency === "USD" ? "selected" : ""}>USD</option>
-        <option value="EUR" ${config.defaultCurrency === "EUR" ? "selected" : ""}>EUR</option>
-        <option value="GBP" ${config.defaultCurrency === "GBP" ? "selected" : ""}>GBP</option>
-        <option value="JPY" ${config.defaultCurrency === "JPY" ? "selected" : ""}>JPY</option>
-        <option value="HKD" ${config.defaultCurrency === "HKD" ? "selected" : ""}>HKD</option>
-      </select>
-    </div>
-  </div>
+  ${payeeAmountRows}
   <div class="ledger-form-row">
     <label class="ledger-label">${toLabel}</label>
     ${toAccountHtml}
@@ -367,9 +373,9 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
         }
     });
 
-    // Focus: payee for expense/income, amount for transfer (payee is optional)
+    // Focus: amount for expense/transfer, payee for income
     setTimeout(() => {
-        const focusField = isTransfer ? "#ledger-amount" : "#ledger-payee";
+        const focusField = isIncome ? "#ledger-payee" : "#ledger-amount";
         (el.querySelector<HTMLInputElement>(focusField))?.focus();
     }, 100);
 }
