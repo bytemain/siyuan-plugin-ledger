@@ -436,7 +436,9 @@ export class DataService {
 
     /**
      * Set transaction-level attributes on the parent block.
-     * No longer writes the JSON blob — postings live in child blocks.
+     * Always writes the ATTR_POSTINGS JSON blob so that the data is
+     * available even when child blocks cannot exist (embed blocks are
+     * leaf nodes in SiYuan and cannot hold children).
      */
     private async setTransactionAttrs(blockId: string, tx: ITransaction): Promise<void> {
         const attrs: Record<string, string> = {
@@ -447,6 +449,7 @@ export class DataService {
             [ATTR_NARRATION]: tx.narration || "",
             [ATTR_TAGS]: (tx.tags || []).join(","),
             [ATTR_UUID]: tx.uuid,
+            [ATTR_POSTINGS]: JSON.stringify(tx.postings),
         };
         return new Promise((resolve, reject) => {
             fetchPost(
@@ -1024,54 +1027,15 @@ export class DataService {
      * Migrate legacy transactions that store postings as a JSON blob
      * (`custom-ledger-postings`) to the new child-block model.
      *
-     * For each transaction block that has ATTR_POSTINGS but no child
-     * posting blocks, this method creates child blocks and removes the
-     * legacy attribute.
+     * NOTE: Since embed blocks (NodeBlockQueryEmbed) cannot hold child
+     * blocks, this method is effectively a no-op.  The ATTR_POSTINGS
+     * JSON blob is always preserved as the primary data source.
      *
-     * @returns The number of transactions migrated.
+     * @returns The number of transactions migrated (always 0).
      */
     async migrateJsonBlobToChildBlocks(): Promise<number> {
-        // Find all transaction blocks that still have the legacy ATTR_POSTINGS
-        const legacyRows: IAttributeRow[] = await new Promise((resolve, reject) => {
-            fetchPost(
-                "/api/query/sql",
-                {
-                    stmt: `SELECT block_id, name, value FROM attributes WHERE block_id IN (SELECT a1.block_id FROM attributes a1 JOIN attributes a2 ON a1.block_id = a2.block_id WHERE a1.name = '${ATTR_TYPE}' AND a1.value = '${TRANSACTION_TYPE_VALUE}' AND a2.name = '${ATTR_POSTINGS}') ORDER BY block_id`,
-                },
-                (res) => {
-                    if (res.code !== 0) {
-                        reject(new Error(res.msg));
-                        return;
-                    }
-                    resolve(res.data || []);
-                },
-            );
-        });
-
-        // Build legacy transactions using JSON blob
-        const legacyTxns = attributeRowsToTransactions(legacyRows);
-        let migrated = 0;
-
-        for (const tx of legacyTxns) {
-            // Check if child posting blocks already exist
-            const childIds = await this.queryChildBlockIds(tx.blockId);
-            if (childIds.length > 0) continue; // already migrated
-
-            // Create child posting blocks
-            await this.insertPostingChildBlocks(tx.blockId, tx.postings);
-
-            // Remove the legacy ATTR_POSTINGS attribute by setting it to empty
-            await new Promise<void>((resolve, reject) => {
-                fetchPost(
-                    "/api/attr/setBlockAttrs",
-                    {id: tx.blockId, attrs: {[ATTR_POSTINGS]: ""}},
-                    (res) => (res.code === 0 ? resolve() : reject(new Error(res.msg))),
-                );
-            });
-
-            migrated++;
-        }
-
-        return migrated;
+        // Embed blocks are leaf nodes — child blocks cannot exist under
+        // them.  Keep ATTR_POSTINGS as the canonical data store.
+        return 0;
     }
 }
