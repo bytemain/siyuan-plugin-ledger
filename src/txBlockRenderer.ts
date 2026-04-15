@@ -96,8 +96,17 @@ export function renderTransactionIntoContainer(
     // we return undefined to skip renderEmbed() (and avoid the yellow "no
     // matching blocks" fallback), the frozen height is never cleared.
     // Clear it ourselves so the block auto-sizes to fit the rendered card.
+    //
+    // Similarly, genRenderFrame() adds the `fn__rotate` CSS class to the
+    // refresh icon SVG to show a spinning loading indicator.  renderEmbed()
+    // removes it, but since we bypass renderEmbed(), we must remove it
+    // ourselves — otherwise the refresh button spins forever.
     if (container.getAttribute("data-type") === "NodeBlockQueryEmbed") {
         container.style.height = "";
+        const rotateElement = container.querySelector(".fn__rotate");
+        if (rotateElement) {
+            rotateElement.classList.remove("fn__rotate");
+        }
     }
 }
 
