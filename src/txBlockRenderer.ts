@@ -35,10 +35,11 @@ export function buildTransactionHTML(
     data: ITransactionEmbedData,
     config: ILedgerConfig,
 ): string {
-    const amount = data.postings
+    const postings = data.postings || [];
+    const amount = postings
         .filter(p => p.amount > 0)
         .reduce((s, p) => s + p.amount, 0);
-    const currency = data.postings[0]?.currency || config.defaultCurrency;
+    const currency = postings[0]?.currency || config.defaultCurrency;
     const sym = config.currencySymbols[currency] || currency;
 
     const params: ICardHTMLParams = {
@@ -46,8 +47,8 @@ export function buildTransactionHTML(
         status: (data.status || "uncleared") as TransactionStatus,
         payee: data.payee,
         narration: data.narration,
-        postings: data.postings,
-        tags: data.tags,
+        postings,
+        tags: data.tags || [],
         amount,
         sym,
         config,

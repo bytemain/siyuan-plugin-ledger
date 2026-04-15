@@ -132,21 +132,22 @@ export function blockRowToTransaction(row: Record<string, string>): ITransaction
 export function buildBlockContent(tx: ITransaction, config: ILedgerConfig): string {
     const sym = (currency: string) => config.currencySymbols[currency] || currency;
     const statusMark = tx.status === "cleared" ? "✓" : tx.status === "pending" ? "?" : "~";
-    const amount = tx.postings
+    const postings = tx.postings || [];
+    const amount = postings
         .filter(p => p.amount > 0)
         .reduce((s, p) => s + p.amount, 0);
-    const currency = tx.postings[0]?.currency || config.defaultCurrency;
+    const currency = postings[0]?.currency || config.defaultCurrency;
 
     if (config.displayMode === "compact") {
-        const from = tx.postings.find(p => p.amount < 0)?.account.split(":").pop() || "";
-        const to = tx.postings.find(p => p.amount > 0)?.account.split(":").pop() || "";
+        const from = postings.find(p => p.amount < 0)?.account.split(":").pop() || "";
+        const to = postings.find(p => p.amount > 0)?.account.split(":").pop() || "";
         return `💰 ${tx.date} ${tx.payee} ${sym(currency)}${amount.toFixed(2)} (${to} ← ${from})`;
     }
 
     const lines: string[] = [
         `💰 ${tx.date} [${statusMark}] | ${tx.payee}${tx.narration ? " | " + tx.narration : ""} | ${sym(currency)}${amount.toFixed(2)}`,
     ];
-    for (const p of tx.postings) {
+    for (const p of postings) {
         const arrow = p.amount >= 0 ? "📤" : "📥";
         lines.push(`  ${arrow} ${p.account} ${sym(p.currency)}${p.amount.toFixed(2)}`);
     }
