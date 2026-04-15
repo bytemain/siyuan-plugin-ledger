@@ -90,23 +90,33 @@ export function renderTransactionIntoContainer(
         container.prepend(wrapper);
     }
 
-    // SiYuan's blockRender freezes the embed block height via an inline
-    // style.height before executing //!js code (to reduce flicker during
-    // re-render).  Normally renderEmbed() clears it at the end, but since
-    // we return undefined to skip renderEmbed() (and avoid the yellow "no
-    // matching blocks" fallback), the frozen height is never cleared.
-    // Clear it ourselves so the block auto-sizes to fit the rendered card.
+    // ── Post-render cleanup ──────────────────────────────────────────────
+    // Since we return `undefined` from the //!js code to skip SiYuan's
+    // built-in renderEmbed() (which would show the yellow "no matching
+    // blocks" fallback), we must replicate the relevant parts of
+    // renderEmbed() ourselves.
     //
-    // Similarly, genRenderFrame() adds the `fn__rotate` CSS class to the
-    // refresh icon SVG to show a spinning loading indicator.  renderEmbed()
-    // removes it, but since we bypass renderEmbed(), we must remove it
-    // ourselves — otherwise the refresh button spins forever.
+    // Reference: siyuan-note/siyuan  blockRender.ts → renderEmbed()
+    //            frostime/sy-query-view  data-view.ts → render()
     if (container.getAttribute("data-type") === "NodeBlockQueryEmbed") {
-        container.style.height = "";
+        // 1. Stop the refresh button spinner.
+        //    genRenderFrame() adds `fn__rotate` to the SVG; renderEmbed()
+        //    removes it once content is ready.
         const rotateElement = container.querySelector(".fn__rotate");
         if (rotateElement) {
             rotateElement.classList.remove("fn__rotate");
         }
+
+        // 2. Ensure all inner nodes are not editable so SiYuan's protyle
+        //    editor does not treat our rendered card as editable content.
+        container.querySelectorAll("[contenteditable=\"true\"]").forEach(node => {
+            node.setAttribute("contenteditable", "false");
+        });
+
+        // 3. Clear the frozen height so the block auto-sizes to fit the
+        //    rendered card.  blockRender freezes it before executing //!js
+        //    to reduce flicker; renderEmbed() clears it at the end.
+        container.style.height = "";
     }
 }
 
