@@ -112,7 +112,7 @@ export const ATTR_DATE = "custom-ledger-date";
 export const ATTR_STATUS = "custom-ledger-status";
 export const ATTR_PAYEE = "custom-ledger-payee";
 export const ATTR_NARRATION = "custom-ledger-narration";
-/** @deprecated Kept for backward-compatible migration reads; new writes use child posting blocks. */
+/** Primary storage for posting data as a JSON blob on the transaction block. */
 export const ATTR_POSTINGS = "custom-ledger-postings";
 export const ATTR_TAGS = "custom-ledger-tags";
 export const ATTR_UUID = "custom-ledger-uuid";
