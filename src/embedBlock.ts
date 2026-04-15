@@ -17,6 +17,11 @@ import {
     type ITransaction,
 } from "./types";
 
+/** Delay (ms) between retries when IAL attributes are not yet available. */
+export const ATTR_RETRY_DELAY_MS = 50;
+/** Maximum number of retry attempts when IAL attributes are not yet available. */
+export const ATTR_RETRY_MAX = 3;
+
 // ─── Embed query types ───────────────────────────────────────────────────────
 
 export type EmbedQueryType = "monthly" | "recent" | "byAccount" | "byPayee" | "all";
@@ -238,8 +243,16 @@ const render = async () => {
     if (!el) return [];
     const blockId = el.getAttribute('data-node-id');
     if (!blockId) return [];
-    const res = await fetchSyncPost('/api/attr/getBlockAttrs', {id: blockId});
+    let res = await fetchSyncPost('/api/attr/getBlockAttrs', {id: blockId});
     if (res.code !== 0 || !res.data) return [];
+    if (!res.data['${ATTR_TYPE}']) {
+        for (let i = 0; i < ${ATTR_RETRY_MAX}; i++) {
+            await new Promise(r => setTimeout(r, ${ATTR_RETRY_DELAY_MS}));
+            res = await fetchSyncPost('/api/attr/getBlockAttrs', {id: blockId});
+            if (res.code !== 0 || !res.data) return [];
+            if (res.data['${ATTR_TYPE}']) break;
+        }
+    }
     Ledger.renderTransaction(res.data, item);
     return undefined;
 };

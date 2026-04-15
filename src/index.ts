@@ -44,7 +44,7 @@ import {openImportExportDialog} from "./importExportDialog";
 import {openAccountManagerDialog} from "./accountManagerDialog";
 import {buildDashboardHTML} from "./dashboard";
 import {exportToLedger, exportToBeancount, exportToCSV, downloadFile} from "./exportService";
-import {buildEmbedJsCode, buildEmbedBlockMarkdown, attrsToTransactionData} from "./embedBlock";
+import {buildEmbedJsCode, buildEmbedBlockMarkdown, attrsToTransactionData, ATTR_RETRY_DELAY_MS, ATTR_RETRY_MAX} from "./embedBlock";
 import type {EmbedQueryType, ITransactionEmbedData} from "./embedBlock";
 import {renderTransactionIntoContainer} from "./txBlockRenderer";
 
@@ -654,6 +654,38 @@ export default class LedgerPlugin extends Plugin {
      */
     private registerGlobalLedger() {
         const config = () => this.dataService.getConfig();
+
+        const doRender = (
+            dataOrAttrs: Record<string, string> | ITransactionEmbedData,
+            item: HTMLElement,
+        ): boolean => {
+            let data: ITransactionEmbedData | null;
+
+            // Discriminate: raw IAL attrs contain the ATTR_TYPE key
+            if (ATTR_TYPE in dataOrAttrs) {
+                data = attrsToTransactionData(
+                    dataOrAttrs as Record<string, string>,
+                );
+            } else if ("date" in dataOrAttrs) {
+                // Legacy ITransactionEmbedData (has "date" + "postings")
+                data = dataOrAttrs as ITransactionEmbedData;
+            } else {
+                // Neither IAL nor legacy format — backend hasn't updated yet
+                return false;
+            }
+
+            if (!data) return false;
+            // Normalise: guard against missing postings / tags
+            // (avoid mutating the original object)
+            const safeData = {
+                ...data,
+                postings: data.postings || [],
+                tags: data.tags || [],
+            };
+            renderTransactionIntoContainer(safeData, item, config());
+            return true;
+        };
+
         (globalThis as any).Ledger = {
             /**
              * Called from `//!js` code inside transaction embed blocks.
@@ -669,27 +701,24 @@ export default class LedgerPlugin extends Plugin {
                 dataOrAttrs: Record<string, string> | ITransactionEmbedData,
                 item: HTMLElement,
             ) {
-                let data: ITransactionEmbedData | null;
+                if (doRender(dataOrAttrs, item)) return;
 
-                // Discriminate: raw IAL attrs contain the ATTR_TYPE key
-                if (ATTR_TYPE in dataOrAttrs) {
-                    data = attrsToTransactionData(
-                        dataOrAttrs as Record<string, string>,
-                    );
-                } else {
-                    // Legacy ITransactionEmbedData (has "date" + "postings")
-                    data = dataOrAttrs as ITransactionEmbedData;
-                }
+                // Backend may not have saved IAL attributes yet.
+                // Retry after short delays so the card renders once data is ready.
+                const el = item.closest?.("[data-node-id]");
+                const blockId = el?.getAttribute("data-node-id");
+                if (!blockId) return;
 
-                if (!data) return;
-                // Normalise: guard against missing postings / tags
-                // (avoid mutating the original object)
-                const safeData = {
-                    ...data,
-                    postings: data.postings || [],
-                    tags: data.tags || [],
+                const retry = (remaining: number) => {
+                    setTimeout(() => {
+                        fetchPost("/api/attr/getBlockAttrs", {id: blockId}, (res) => {
+                            if (res.code !== 0 || !res.data) return;
+                            if (doRender(res.data, item)) return;
+                            if (remaining > 0) retry(remaining - 1);
+                        });
+                    }, ATTR_RETRY_DELAY_MS);
                 };
-                renderTransactionIntoContainer(safeData, item, config());
+                retry(ATTR_RETRY_MAX);
             },
         };
     }
