@@ -66,7 +66,7 @@
 ```typescript
 interface IPosting {
     account: string;        // 账户路径，如 "Expenses:Food:Dining"
-    amount: number;         // 金额（正数表示借方/增加，负数表示贷方/减少）
+    amount: number;         // 金额（正数 = 账户余额增加，负数 = 账户余额减少）
     currency: string;       // 货币代码，如 "CNY"
     price?: number;         // 单价（用于外币/投资交易）
     priceCurrency?: string; // 单价货币
@@ -74,6 +74,12 @@ interface IPosting {
     costCurrency?: string;  // 成本货币
 }
 ```
+
+> **符号约定**：`amount` 的正负代表该账户余额的变化方向。
+> - `Expenses:*` 金额为正值（支出分类余额增加 = 花了钱）
+> - `Income:*` 金额为负值（收入来源余额减少 = 赚了钱）
+> - `Assets:*` 金额视情况：付款时为负（资产减少），收款时为正（资产增加）
+> - 所有 postings 的 `amount` 之和必须为 **零**（借贷平衡）
 
 ### ITransaction
 
@@ -106,33 +112,33 @@ interface ITransaction {
 
 ```
 2024-03-15 * "午餐"
-    Expenses:Food:Dining    -35.00 CNY   ← posting 1：支出增加
-    Assets:Alipay            35.00 CNY   ← posting 2：资产减少
+    Expenses:Food:Dining     35.00 CNY   ← posting 1：支出增加（正值）
+    Assets:Alipay           -35.00 CNY   ← posting 2：资产减少（负值）
 ```
 
 **拆分消费（3+ 个 postings）：**
 
 ```
 2024-03-15 * "超市购物"
-    Expenses:Food:Groceries  -80.00 CNY  ← posting 1：食品
-    Expenses:Daily:Household -20.00 CNY  ← posting 2：日用品
-    Assets:Bank:BOC          100.00 CNY  ← posting 3：银行扣款
+    Expenses:Food:Groceries   80.00 CNY  ← posting 1：食品支出
+    Expenses:Daily:Household  20.00 CNY  ← posting 2：日用品支出
+    Assets:Bank:BOC         -100.00 CNY  ← posting 3：银行扣款
 ```
 
 **转账（2 个 postings）：**
 
 ```
 2024-03-15 * "支付宝→银行"
-    Assets:Alipay           -500.00 CNY
-    Assets:Bank:BOC          500.00 CNY
+    Assets:Alipay           -500.00 CNY  ← 转出
+    Assets:Bank:BOC          500.00 CNY  ← 转入
 ```
 
 **信用卡还款（2 个 postings）：**
 
 ```
 2024-03-15 * "还信用卡"
-    Liabilities:CreditCard:CMB  -3000.00 CNY
-    Assets:Bank:CMB              3000.00 CNY
+    Liabilities:CreditCard:CMB   3000.00 CNY  ← 负债减少
+    Assets:Bank:CMB             -3000.00 CNY  ← 资产减少
 ```
 
 ### 为什么不把每个 posting 拆成独立属性？
@@ -155,7 +161,7 @@ custom-ledger-date="2024-03-15"
 custom-ledger-status="cleared"
 custom-ledger-payee="盒马鲜生"
 custom-ledger-narration="周末采购"
-custom-ledger-postings='[{"account":"Expenses:Food:Groceries","amount":-80,"currency":"CNY"},{"account":"Expenses:Daily:Household","amount":-20,"currency":"CNY"},{"account":"Assets:Alipay","amount":100,"currency":"CNY"}]'
+custom-ledger-postings='[{"account":"Expenses:Food:Groceries","amount":80,"currency":"CNY"},{"account":"Expenses:Daily:Household","amount":20,"currency":"CNY"},{"account":"Assets:Alipay","amount":-100,"currency":"CNY"}]'
 custom-ledger-tags="日用,食品"
 custom-ledger-uuid="a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 ```
