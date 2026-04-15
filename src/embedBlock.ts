@@ -225,6 +225,12 @@ export function attrsToTransactionData(
 export function buildTransactionEmbedCode(
     _tx?: ITransaction | Omit<ITransaction, "blockId">,
 ): string {
+    // After successful rendering, return undefined (not []) so that SiYuan's
+    // blockRender skips its own embed rendering and does NOT show the yellow
+    // "不存在符合条件的内容块" fallback message.
+    // See: siyuan-note/siyuan app/src/protyle/render/blockRender.ts — when
+    // the //!js Promise resolves to a non-array value, SiYuan simply returns
+    // without calling renderEmbed(), preserving the plugin's custom DOM.
     return `//!js
 const render = async () => {
     if (typeof Ledger === 'undefined' || !Ledger.renderTransaction) return [];
@@ -235,7 +241,7 @@ const render = async () => {
     const res = await fetchSyncPost('/api/attr/getBlockAttrs', {id: blockId});
     if (res.code !== 0 || !res.data) return [];
     Ledger.renderTransaction(res.data, item);
-    return [];
+    return undefined;
 };
 return render();`;
 }
