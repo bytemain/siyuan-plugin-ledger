@@ -240,7 +240,7 @@ const render = async () => {
     if (!blockId) return [];
     const attrs = await Ledger.fetchBlockAttrs(blockId, fetchSyncPost);
     if (!attrs) return [];
-    Ledger.renderTransaction(attrs, item);
+    Ledger.renderTransaction(attrs, item, { blockId, protyle, top });
     return undefined;
 };
 return render();`;

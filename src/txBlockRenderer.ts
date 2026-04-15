@@ -15,12 +15,28 @@
  * single source of truth, and the HTML is derived from it at runtime.
  */
 
+import {fetchSyncPost} from "siyuan";
 import {
     type ILedgerConfig,
     type IPosting,
     type TransactionStatus,
 } from "./types";
 import type {ITransactionEmbedData} from "./embedBlock";
+
+/**
+ * Optional context from the SiYuan `//!js` execution environment.
+ * When provided, `renderTransactionIntoContainer` can perform the full
+ * set of post-render cleanup that SiYuan's `renderEmbed()` would
+ * normally handle.
+ */
+export interface IEmbedRenderContext {
+    /** The embed block's `data-node-id` */
+    blockId?: string;
+    /** SiYuan protyle instance (injected into `//!js` as `protyle`) */
+    protyle?: { contentElement: HTMLElement };
+    /** Saved scroll offset (injected into `//!js` as `top`) */
+    top?: number;
+}
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -71,6 +87,7 @@ export function renderTransactionIntoContainer(
     data: ITransactionEmbedData,
     container: HTMLElement,
     config: ILedgerConfig,
+    ctx?: IEmbedRenderContext,
 ): void {
     if (!container) return;
 
@@ -90,14 +107,50 @@ export function renderTransactionIntoContainer(
         container.prepend(wrapper);
     }
 
-    // SiYuan's blockRender freezes the embed block height via an inline
-    // style.height before executing //!js code (to reduce flicker during
-    // re-render).  Normally renderEmbed() clears it at the end, but since
-    // we return undefined to skip renderEmbed() (and avoid the yellow "no
-    // matching blocks" fallback), the frozen height is never cleared.
-    // Clear it ourselves so the block auto-sizes to fit the rendered card.
+    // ── Post-render cleanup ──────────────────────────────────────────────
+    // Since we return `undefined` from the //!js code to skip SiYuan's
+    // built-in renderEmbed() (which would show the yellow "no matching
+    // blocks" fallback), we must replicate the relevant parts of
+    // renderEmbed() ourselves.
+    //
+    // Reference: siyuan-note/siyuan  blockRender.ts → renderEmbed()
+    //            frostime/sy-query-view  data-view.ts → render()
     if (container.getAttribute("data-type") === "NodeBlockQueryEmbed") {
+        // 1. Stop the refresh button spinner.
+        //    genRenderFrame() adds `fn__rotate` to the SVG; renderEmbed()
+        //    removes it once content is ready.
+        const rotateElement = container.querySelector(".fn__rotate");
+        if (rotateElement) {
+            rotateElement.classList.remove("fn__rotate");
+        }
+
+        // 2. Ensure all inner nodes are not editable so SiYuan's protyle
+        //    editor does not treat our rendered card as editable content.
+        container.querySelectorAll("[contenteditable=\"true\"]").forEach(node => {
+            node.setAttribute("contenteditable", "false");
+        });
+
+        // 3. Clear the frozen height so the block auto-sizes to fit the
+        //    rendered card.  blockRender freezes it before executing //!js
+        //    to reduce flicker; renderEmbed() clears it at the end.
         container.style.height = "";
+
+        // 4. Update SiYuan's search index for this embed block so its
+        //    rendered content is discoverable via global search.
+        if (ctx?.blockId) {
+            try {
+                fetchSyncPost("/api/search/updateEmbedBlock", {
+                    id: ctx.blockId,
+                    content: wrapper.textContent || "",
+                });
+            } catch (_) { /* best-effort index update */ }
+        }
+
+        // 5. Restore scroll position after rendering (forward/back
+        //    navigation).
+        if (ctx?.top && ctx.protyle) {
+            ctx.protyle.contentElement.scrollTop = ctx.top;
+        }
     }
 }
 
