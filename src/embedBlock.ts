@@ -241,7 +241,6 @@ const render = async () => {
     const res = await fetchSyncPost('/api/attr/getBlockAttrs', {id: blockId});
     if (res.code !== 0 || !res.data) return [];
     Ledger.renderTransaction(res.data, item);
-    item.style.height = '';
     return undefined;
 };
 return render();`;

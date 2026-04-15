@@ -90,6 +90,15 @@ export function renderTransactionIntoContainer(
         container.prepend(wrapper);
     }
 
+    // SiYuan's blockRender freezes the embed block height via an inline
+    // style.height before executing //!js code (to reduce flicker during
+    // re-render).  Normally renderEmbed() clears it at the end, but since
+    // we return undefined to skip renderEmbed() (and avoid the yellow "no
+    // matching blocks" fallback), the frozen height is never cleared.
+    // Clear it ourselves so the block auto-sizes to fit the rendered card.
+    if (container.getAttribute("data-type") === "NodeBlockQueryEmbed") {
+        container.style.height = "";
+    }
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
