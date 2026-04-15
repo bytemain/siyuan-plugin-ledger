@@ -914,6 +914,7 @@ export default class LedgerPlugin extends Plugin {
             protyle: p,
             dataService: this.dataService,
             i18n: this.i18n,
+            onAccountAdded: () => this.savePersistedAccounts(),
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
@@ -934,6 +935,7 @@ export default class LedgerPlugin extends Plugin {
             protyle: p,
             dataService: this.dataService,
             i18n: this.i18n,
+            onAccountAdded: () => this.savePersistedAccounts(),
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
@@ -954,6 +956,7 @@ export default class LedgerPlugin extends Plugin {
             protyle: p,
             dataService: this.dataService,
             i18n: this.i18n,
+            onAccountAdded: () => this.savePersistedAccounts(),
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
@@ -995,6 +998,7 @@ export default class LedgerPlugin extends Plugin {
             i18n: this.i18n,
             defaultFromAccount: "Assets:Bank:Checking",
             defaultToAccount: "Liabilities:CreditCard:CMB",
+            onAccountAdded: () => this.savePersistedAccounts(),
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
@@ -1017,6 +1021,7 @@ export default class LedgerPlugin extends Plugin {
             i18n: this.i18n,
             defaultFromAccount: "Income:Reimbursement",
             defaultTags: ["报销"],
+            onAccountAdded: () => this.savePersistedAccounts(),
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();

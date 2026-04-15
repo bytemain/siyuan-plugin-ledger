@@ -1,11 +1,13 @@
 /**
  * Quick entry dialogs — expense, income, transfer, and simple one-line entry.
  */
-import {Dialog, Protyle} from "siyuan";
+import {Dialog, Protyle, showMessage} from "siyuan";
 import {DataService} from "./dataService";
-import {IPosting, ITransaction} from "./types";
+import {IAccount, IPosting, ITransaction} from "./types";
 import {ACCOUNT_ALIASES, CREDIT_CARD_PAYMENT_PATTERNS, REIMBURSEMENT_PATTERNS} from "./defaultAccounts";
 import {attachPayeeAutocomplete, attachNarrationAutocomplete, attachTagAutocomplete} from "./autocomplete";
+
+const ADD_NEW_SENTINEL = "__ADD_NEW__";
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
@@ -51,10 +53,164 @@ export interface IQuickEntryOptions {
     defaultToAccount?: string;
     /** Pre-fill tags (e.g. ["报销"] for reimbursement) */
     defaultTags?: string[];
+    /** Called when a new account is added inline so it can be persisted */
+    onAccountAdded?: () => void;
+}
+
+// ─── Inline "add account" dialog ─────────────────────────────────────────────
+
+/**
+ * Opens a small dialog to create a new account inline from a dropdown.
+ * On save the account is added to DataService and the callback is invoked
+ * with the new account so the caller can update the <select>.
+ */
+function openInlineAddAccountDialog(
+    ds: DataService,
+    i18n: Record<string, string>,
+    defaultType: IAccount["type"],
+    onCreated: (account: IAccount) => void,
+): void {
+    const types: IAccount["type"][] = ["Assets", "Liabilities", "Income", "Expenses", "Equity"];
+    const config = ds.getConfig();
+    const isCategory = defaultType === "Expenses" || defaultType === "Income";
+    const dialogTitle = isCategory ? (i18n.addCategory ?? i18n.addAccount) : i18n.addAccount;
+
+    const editContent = `<div class="b3-dialog__content ledger-dialog">
+  <div class="ledger-form-row">
+    <label class="ledger-label">${i18n.accountPath}</label>
+    <input id="inline-add-path" class="b3-text-field fn__block" value="" placeholder="${isCategory ? "Expenses:Food:Dining" : "Assets:Bank:Savings"}">
+  </div>
+  <div class="ledger-form-row">
+    <label class="ledger-label">${i18n.accountType}</label>
+    <select id="inline-add-type" class="b3-select fn__block">
+      ${types.map(t => `<option value="${t}" ${t === defaultType ? "selected" : ""}>${t}</option>`).join("")}
+    </select>
+  </div>
+  <div class="ledger-form-row">
+    <label class="ledger-label">${i18n.icon}</label>
+    <input id="inline-add-icon" class="b3-text-field fn__block" value="" placeholder="💰">
+  </div>
+  <div class="ledger-form-row">
+    <label class="ledger-label">${i18n.note}</label>
+    <input id="inline-add-note" class="b3-text-field fn__block" value="">
+  </div>
+  <div class="ledger-form-row">
+    <label class="ledger-label">${i18n.currencies}</label>
+    <input id="inline-add-currencies" class="b3-text-field fn__block" value="${config.defaultCurrency}" placeholder="CNY,USD">
+  </div>
+</div>
+<div class="b3-dialog__action">
+  <button class="b3-button b3-button--cancel" id="inline-add-cancel">${i18n.cancel}</button>
+  <div class="fn__space"></div>
+  <button class="b3-button b3-button--text" id="inline-add-save">${i18n.save}</button>
+</div>`;
+
+    const addDialog = new Dialog({
+        title: `+ ${dialogTitle}`,
+        content: editContent,
+        width: "420px",
+    });
+    const eel = addDialog.element;
+
+    eel.querySelector("#inline-add-cancel")?.addEventListener("click", () => addDialog.destroy());
+    eel.querySelector("#inline-add-save")?.addEventListener("click", () => {
+        const path = eel.querySelector<HTMLInputElement>("#inline-add-path")?.value.trim() || "";
+        const type = (eel.querySelector<HTMLSelectElement>("#inline-add-type")?.value || defaultType) as IAccount["type"];
+        const icon = eel.querySelector<HTMLInputElement>("#inline-add-icon")?.value.trim() || "";
+        const note = eel.querySelector<HTMLInputElement>("#inline-add-note")?.value.trim() || "";
+        const currencies = (eel.querySelector<HTMLInputElement>("#inline-add-currencies")?.value || config.defaultCurrency)
+            .split(",").map(c => c.trim()).filter(Boolean);
+
+        if (!path) {
+            eel.querySelector<HTMLInputElement>("#inline-add-path")?.classList.add("ledger-error");
+            eel.querySelector<HTMLInputElement>("#inline-add-path")?.focus();
+            return;
+        }
+
+        // Check for duplicate account path
+        if (ds.findAccount(path)) {
+            eel.querySelector<HTMLInputElement>("#inline-add-path")?.classList.add("ledger-error");
+            eel.querySelector<HTMLInputElement>("#inline-add-path")?.focus();
+            return;
+        }
+
+        const newAccount: IAccount = {
+            path,
+            type,
+            currencies: currencies.length ? currencies : [config.defaultCurrency],
+            openDate: new Date().toISOString().slice(0, 10),
+            icon,
+            note,
+        };
+
+        // Add to DataService
+        const accounts = ds.getAccounts();
+        accounts.push(newAccount);
+        ds.setAccounts(accounts);
+
+        addDialog.destroy();
+        showMessage(`[Ledger] ${i18n.accountsSaved}`);
+        onCreated(newAccount);
+    });
+
+    // Focus path input
+    setTimeout(() => eel.querySelector<HTMLInputElement>("#inline-add-path")?.focus(), 100);
+}
+
+/**
+ * Rebuild the <option> list for a <select>, including the sentinel "add new" item.
+ */
+function rebuildSelectOptions(
+    select: HTMLSelectElement,
+    ds: DataService,
+    prefixes: string[],
+    addLabel: string,
+): void {
+    const options = prefixes
+        .flatMap(prefix => ds.getAccountsByPrefix(prefix))
+        .map(a => {
+            const path = escapeHtmlAttr(a.path);
+            const note = a.note ? ` (${escapeHtmlAttr(a.note)})` : "";
+            return `<option value="${path}">${a.icon || ""} ${path}${note}</option>`;
+        })
+        .join("");
+    select.innerHTML = options + `<option value="${ADD_NEW_SENTINEL}">${addLabel}</option>`;
+}
+
+/**
+ * Attach a change listener to a <select> that intercepts the "add new" sentinel
+ * and opens the inline add-account dialog.
+ */
+function attachAddNewHandler(
+    select: HTMLSelectElement,
+    ds: DataService,
+    i18n: Record<string, string>,
+    prefixes: string[],
+    defaultType: IAccount["type"],
+    addLabel: string,
+    onAccountAdded?: () => void,
+): void {
+    select.addEventListener("change", () => {
+        if (select.value !== ADD_NEW_SENTINEL) return;
+
+        // Remember current real value to restore if user cancels
+        const firstRealOption = select.querySelector<HTMLOptionElement>(`option:not([value="${ADD_NEW_SENTINEL}"])`);
+        const fallbackValue = firstRealOption?.value || "";
+
+        openInlineAddAccountDialog(ds, i18n, defaultType, (newAccount) => {
+            // Rebuild options and select the newly created account
+            rebuildSelectOptions(select, ds, prefixes, addLabel);
+            select.value = newAccount.path;
+            onAccountAdded?.();
+        });
+
+        // Restore previous value so form doesn't have sentinel selected
+        select.value = fallbackValue;
+    });
 }
 
 export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
-    const {mode, protyle, dataService: ds, i18n, onSuccess} = opts;
+    const {mode, protyle, dataService: ds, i18n, onSuccess, onAccountAdded} = opts;
     const config = ds.getConfig();
 
     const isExpense = mode === "expense";
@@ -68,13 +224,19 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
     };
     const title = titleMap[mode];
 
-    // Account selectors
-    const expenseCategoryAccounts = accountOptions(ds, "Expenses");
+    const addCategoryLabel = i18n.addCategoryInline || "+ New Category…";
+    const addAccountLabel = i18n.addAccountInline || "+ New Account…";
+
+    // Account selectors — append "add new" sentinel at end of each dropdown
+    const expenseCategoryAccounts = accountOptions(ds, "Expenses")
+        + `<option value="${ADD_NEW_SENTINEL}">${addCategoryLabel}</option>`;
     const assetAccounts = ds.getAccountsByPrefix("Assets")
         .concat(ds.getAccountsByPrefix("Liabilities"))
         .map(a => `<option value="${a.path}">${a.icon || ""} ${a.path}${a.note ? " (" + a.note + ")" : ""}</option>`)
-        .join("");
-    const incomeAccounts = accountOptions(ds, "Income");
+        .join("")
+        + `<option value="${ADD_NEW_SENTINEL}">${addAccountLabel}</option>`;
+    const incomeAccounts = accountOptions(ds, "Income")
+        + `<option value="${ADD_NEW_SENTINEL}">${addCategoryLabel}</option>`;
 
     let fromAccountHtml: string;
     let toAccountHtml: string;
@@ -239,6 +401,48 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
         }
     }
 
+    // ── Attach "add new" handlers on dropdowns ──────────────────────────
+    const toSelect = el.querySelector<HTMLSelectElement>("#ledger-to-account");
+    if (toSelect) {
+        let toPrefixes: string[];
+        let toDefaultType: IAccount["type"];
+        let toAddLabel: string;
+        if (isExpense) {
+            toPrefixes = ["Expenses"];
+            toDefaultType = "Expenses";
+            toAddLabel = addCategoryLabel;
+        } else if (isIncome) {
+            toPrefixes = ["Assets", "Liabilities"];
+            toDefaultType = "Assets";
+            toAddLabel = addAccountLabel;
+        } else {
+            toPrefixes = ["Assets", "Liabilities"];
+            toDefaultType = "Assets";
+            toAddLabel = addAccountLabel;
+        }
+        attachAddNewHandler(toSelect, ds, i18n, toPrefixes, toDefaultType, toAddLabel, onAccountAdded);
+    }
+
+    if (fromSelect) {
+        let fromPrefixes: string[];
+        let fromDefaultType: IAccount["type"];
+        let fromAddLabel: string;
+        if (isExpense) {
+            fromPrefixes = ["Assets", "Liabilities"];
+            fromDefaultType = "Assets";
+            fromAddLabel = addAccountLabel;
+        } else if (isIncome) {
+            fromPrefixes = ["Income"];
+            fromDefaultType = "Income";
+            fromAddLabel = addCategoryLabel;
+        } else {
+            fromPrefixes = ["Assets", "Liabilities"];
+            fromDefaultType = "Assets";
+            fromAddLabel = addAccountLabel;
+        }
+        attachAddNewHandler(fromSelect, ds, i18n, fromPrefixes, fromDefaultType, fromAddLabel, onAccountAdded);
+    }
+
     // ── Split bill toggle ───────────────────────────────────────────────
     const splitToggle = el.querySelector<HTMLInputElement>(`#${splitToggleId}`);
     const splitSection = el.querySelector<HTMLElement>(`#${splitSectionId}`);
@@ -258,6 +462,11 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
         <input class="b3-text-field split-amount" type="number" min="0" step="0.01" placeholder="0.00" style="width:90px">
         <button class="b3-button b3-button--outline split-remove" style="padding:0 6px" data-index="${rowIndex}">×</button>`;
             rowDiv.querySelector(".split-remove")?.addEventListener("click", () => rowDiv.remove());
+            // Attach add-new handler to split account dropdown
+            const splitSelect = rowDiv.querySelector<HTMLSelectElement>(".split-account");
+            if (splitSelect) {
+                attachAddNewHandler(splitSelect, ds, i18n, ["Expenses"], "Expenses", addCategoryLabel, onAccountAdded);
+            }
             splitRows.appendChild(rowDiv);
         });
     }

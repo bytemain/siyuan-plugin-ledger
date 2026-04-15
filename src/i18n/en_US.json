@@ -85,6 +85,9 @@
 
   "accountManager": "Account Manager",
   "addAccount": "Add Account",
+  "addCategory": "Add Category",
+  "addAccountInline": "+ New Account…",
+  "addCategoryInline": "+ New Category…",
   "editAccount": "Edit Account",
   "accountPath": "Account path",
   "accountType": "Type",
