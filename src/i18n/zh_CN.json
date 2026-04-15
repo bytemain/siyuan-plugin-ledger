@@ -85,6 +85,9 @@
 
   "accountManager": "账户管理",
   "addAccount": "添加账户",
+  "addCategory": "添加分类",
+  "addAccountInline": "+ 新增账户…",
+  "addCategoryInline": "+ 新增分类…",
   "editAccount": "编辑账户",
   "accountPath": "账户路径",
   "accountType": "账户类型",
