@@ -6,6 +6,7 @@ import {DataService} from "./dataService";
 import {ITransaction} from "./types";
 
 function escapeHtml(s: string): string {
+    if (!s) return "";
     return s
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")

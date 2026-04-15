@@ -95,6 +95,7 @@ export function renderTransactionIntoContainer(
 
 /** Escape text for safe HTML interpolation */
 function esc(s: string): string {
+    if (!s) return "";
     return s
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")

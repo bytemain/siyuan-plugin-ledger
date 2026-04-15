@@ -10,6 +10,7 @@ import {attachPayeeAutocomplete, attachNarrationAutocomplete, attachTagAutocompl
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
 function escapeHtmlAttr(s: string): string {
+    if (!s) return "";
     return s
         .replace(/&/g, "&amp;")
         .replace(/"/g, "&quot;")

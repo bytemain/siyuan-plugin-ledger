@@ -6,6 +6,7 @@ import {DataService} from "./dataService";
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
 function escapeHtml(s: string): string {
+    if (!s) return "";
     return s
         .replace(/&/g, "&amp;")
         .replace(/"/g, "&quot;")
