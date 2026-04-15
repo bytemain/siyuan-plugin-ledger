@@ -73,7 +73,7 @@ function openInlineAddAccountDialog(
     const types: IAccount["type"][] = ["Assets", "Liabilities", "Income", "Expenses", "Equity"];
     const config = ds.getConfig();
     const isCategory = defaultType === "Expenses" || defaultType === "Income";
-    const dialogTitle = isCategory ? (i18n.addCategory || i18n.addAccount) : i18n.addAccount;
+    const dialogTitle = isCategory ? (i18n.addCategory ?? i18n.addAccount) : i18n.addAccount;
 
     const editContent = `<div class="b3-dialog__content ledger-dialog">
   <div class="ledger-form-row">
@@ -122,6 +122,13 @@ function openInlineAddAccountDialog(
             .split(",").map(c => c.trim()).filter(Boolean);
 
         if (!path) {
+            eel.querySelector<HTMLInputElement>("#inline-add-path")?.classList.add("ledger-error");
+            eel.querySelector<HTMLInputElement>("#inline-add-path")?.focus();
+            return;
+        }
+
+        // Check for duplicate account path
+        if (ds.findAccount(path)) {
             eel.querySelector<HTMLInputElement>("#inline-add-path")?.classList.add("ledger-error");
             eel.querySelector<HTMLInputElement>("#inline-add-path")?.focus();
             return;
