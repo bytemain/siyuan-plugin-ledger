@@ -46,7 +46,7 @@ import {buildDashboardHTML} from "./dashboard";
 import {exportToLedger, exportToBeancount, exportToCSV, downloadFile} from "./exportService";
 import {buildEmbedJsCode, buildEmbedBlockMarkdown, attrsToTransactionData} from "./embedBlock";
 import type {EmbedQueryType, ITransactionEmbedData} from "./embedBlock";
-import {renderTransactionIntoContainer} from "./txBlockRenderer";
+import {renderTransactionIntoContainer, type IEmbedRenderContext} from "./txBlockRenderer";
 
 export default class LedgerPlugin extends Plugin {
 
@@ -700,10 +700,12 @@ export default class LedgerPlugin extends Plugin {
              *
              * @param dataOrAttrs  Raw IAL attrs or legacy embed data
              * @param item         The embed block DOM element (SiYuan's `item` param)
+             * @param embedCtx     Optional context from the `//!js` environment
              */
             renderTransaction(
                 dataOrAttrs: Record<string, string> | ITransactionEmbedData,
                 item: HTMLElement,
+                embedCtx?: IEmbedRenderContext,
             ) {
                 let data: ITransactionEmbedData | null;
 
@@ -725,7 +727,7 @@ export default class LedgerPlugin extends Plugin {
                     postings: data.postings || [],
                     tags: data.tags || [],
                 };
-                renderTransactionIntoContainer(safeData, item, config());
+                renderTransactionIntoContainer(safeData, item, config(), embedCtx);
             },
         };
     }

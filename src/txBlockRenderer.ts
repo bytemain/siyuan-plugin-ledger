@@ -15,12 +15,28 @@
  * single source of truth, and the HTML is derived from it at runtime.
  */
 
+import {fetchSyncPost} from "siyuan";
 import {
     type ILedgerConfig,
     type IPosting,
     type TransactionStatus,
 } from "./types";
 import type {ITransactionEmbedData} from "./embedBlock";
+
+/**
+ * Optional context from the SiYuan `//!js` execution environment.
+ * When provided, `renderTransactionIntoContainer` can perform the full
+ * set of post-render cleanup that SiYuan's `renderEmbed()` would
+ * normally handle.
+ */
+export interface IEmbedRenderContext {
+    /** The embed block's `data-node-id` */
+    blockId?: string;
+    /** SiYuan protyle instance (injected into `//!js` as `protyle`) */
+    protyle?: { contentElement: HTMLElement };
+    /** Saved scroll offset (injected into `//!js` as `top`) */
+    top?: number;
+}
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -71,6 +87,7 @@ export function renderTransactionIntoContainer(
     data: ITransactionEmbedData,
     container: HTMLElement,
     config: ILedgerConfig,
+    ctx?: IEmbedRenderContext,
 ): void {
     if (!container) return;
 
@@ -117,6 +134,23 @@ export function renderTransactionIntoContainer(
         //    rendered card.  blockRender freezes it before executing //!js
         //    to reduce flicker; renderEmbed() clears it at the end.
         container.style.height = "";
+
+        // 4. Update SiYuan's search index for this embed block so its
+        //    rendered content is discoverable via global search.
+        if (ctx?.blockId) {
+            try {
+                fetchSyncPost("/api/search/updateEmbedBlock", {
+                    id: ctx.blockId,
+                    content: wrapper.textContent || "",
+                });
+            } catch (_) { /* best-effort index update */ }
+        }
+
+        // 5. Restore scroll position after rendering (forward/back
+        //    navigation).
+        if (ctx?.top && ctx.protyle) {
+            ctx.protyle.contentElement.scrollTop = ctx.top;
+        }
     }
 }
 

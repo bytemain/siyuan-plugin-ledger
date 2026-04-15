@@ -240,25 +240,7 @@ const render = async () => {
     if (!blockId) return [];
     const attrs = await Ledger.fetchBlockAttrs(blockId, fetchSyncPost);
     if (!attrs) return [];
-    Ledger.renderTransaction(attrs, item);
-    // Update SiYuan's search index for this embed block so its rendered
-    // content is discoverable via global search.
-    // Ref: frostime/sy-query-view data-view.ts render()
-    try {
-        const card = item.querySelector('.ledger-tx-card');
-        if (card) {
-            fetchSyncPost('/api/search/updateEmbedBlock', {
-                id: blockId,
-                content: card.textContent || ''
-            });
-        }
-    } catch (_) { /* best-effort index update */ }
-    // Restore scroll position after rendering (forward/back navigation).
-    // top and protyle are injected by SiYuan //!js execution context.
-    // Ref: siyuan-note/siyuan blockRender.ts renderEmbed()
-    if (top) {
-        protyle.contentElement.scrollTop = top;
-    }
+    Ledger.renderTransaction(attrs, item, { blockId, protyle, top });
     return undefined;
 };
 return render();`;
