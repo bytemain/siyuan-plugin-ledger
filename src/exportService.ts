@@ -10,6 +10,7 @@ import {ITransaction, IAccount, ILedgerConfig} from "./types";
  * Converts a date string from "YYYY-MM-DD" to "YYYY/MM/DD" (Ledger format).
  */
 function toLedgerDate(iso: string): string {
+    if (!iso) return "";
     return iso.replace(/-/g, "/");
 }
 
@@ -109,6 +110,7 @@ export function exportToBeancount(
 // ─── CSV ─────────────────────────────────────────────────────────────────────
 
 function csvEscape(value: string): string {
+    if (!value) return "";
     if (value.includes(",") || value.includes('"') || value.includes("\n")) {
         return `"${value.replace(/"/g, '""')}"`;
     }

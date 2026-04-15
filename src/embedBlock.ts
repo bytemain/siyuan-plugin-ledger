@@ -238,9 +238,9 @@ const render = async () => {
     if (!el) return [];
     const blockId = el.getAttribute('data-node-id');
     if (!blockId) return [];
-    const res = await fetchSyncPost('/api/attr/getBlockAttrs', {id: blockId});
-    if (res.code !== 0 || !res.data) return [];
-    Ledger.renderTransaction(res.data, item);
+    const attrs = await Ledger.fetchBlockAttrs(blockId, fetchSyncPost);
+    if (!attrs) return [];
+    Ledger.renderTransaction(attrs, item);
     return undefined;
 };
 return render();`;

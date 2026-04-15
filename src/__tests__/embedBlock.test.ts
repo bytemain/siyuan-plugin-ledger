@@ -130,10 +130,11 @@ describe("buildTransactionEmbedCode", () => {
         expect(code).toContain("getAttribute('data-node-id')");
     });
 
-    it("fetches IAL attributes via fetchSyncPost", () => {
+    it("delegates attribute fetching to Ledger.fetchBlockAttrs", () => {
         const code = buildTransactionEmbedCode();
+        expect(code).toContain("Ledger.fetchBlockAttrs");
+        // fetchSyncPost is passed as an argument so the global handles retries
         expect(code).toContain("fetchSyncPost");
-        expect(code).toContain("/api/attr/getBlockAttrs");
     });
 
     it("does not embed transaction-specific data in the JS code", () => {

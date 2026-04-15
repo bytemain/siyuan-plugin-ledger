@@ -654,7 +654,43 @@ export default class LedgerPlugin extends Plugin {
      */
     private registerGlobalLedger() {
         const config = () => this.dataService.getConfig();
+
+        /** Delay (ms) between retries when IAL attributes are not yet available. */
+        const RETRY_DELAY_MS = 50;
+        /** Maximum number of retry attempts. */
+        const RETRY_MAX = 3;
+
         (globalThis as any).Ledger = {
+            /**
+             * Fetch block IAL attributes with retry.
+             *
+             * When a transaction block is first created the backend may not
+             * have persisted the attributes yet.  This helper retries up to
+             * `RETRY_MAX` times (with `RETRY_DELAY_MS` between attempts)
+             * until `custom-ledger-type` appears in the response.
+             *
+             * @param blockId         SiYuan block ID
+             * @param fetchSyncPostFn The `fetchSyncPost` injected by the
+             *                        `//!js` embed execution context
+             * @returns Resolved attributes, or `null` on failure
+             */
+            async fetchBlockAttrs(
+                blockId: string,
+                fetchSyncPostFn: (url: string, data: unknown) => Promise<{ code: number; data?: Record<string, string> }>,
+            ): Promise<Record<string, string> | null> {
+                let res = await fetchSyncPostFn("/api/attr/getBlockAttrs", {id: blockId});
+                if (res.code !== 0 || !res.data) return null;
+                if (!res.data[ATTR_TYPE]) {
+                    for (let i = 0; i < RETRY_MAX; i++) {
+                        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+                        res = await fetchSyncPostFn("/api/attr/getBlockAttrs", {id: blockId});
+                        if (res.code !== 0 || !res.data) return null;
+                        if (res.data[ATTR_TYPE]) break;
+                    }
+                }
+                return res.data;
+            },
+
             /**
              * Called from `//!js` code inside transaction embed blocks.
              *

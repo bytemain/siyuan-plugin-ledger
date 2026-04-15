@@ -12,6 +12,7 @@ const ADD_NEW_SENTINEL = "__ADD_NEW__";
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
 function escapeHtmlAttr(s: string): string {
+    if (!s) return "";
     return s
         .replace(/&/g, "&amp;")
         .replace(/"/g, "&quot;")
