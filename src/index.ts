@@ -682,7 +682,14 @@ export default class LedgerPlugin extends Plugin {
                 }
 
                 if (!data) return;
-                renderTransactionIntoContainer(data, item, config());
+                // Normalise: guard against missing postings / tags
+                // (avoid mutating the original object)
+                const safeData = {
+                    ...data,
+                    postings: data.postings || [],
+                    tags: data.tags || [],
+                };
+                renderTransactionIntoContainer(safeData, item, config());
             },
         };
     }
