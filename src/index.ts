@@ -44,7 +44,7 @@ import {openImportExportDialog} from "./importExportDialog";
 import {openAccountManagerDialog} from "./accountManagerDialog";
 import {buildDashboardHTML} from "./dashboard";
 import {exportToLedger, exportToBeancount, exportToCSV, downloadFile} from "./exportService";
-import {buildEmbedJsCode, buildEmbedBlockMarkdown, attrsToTransactionData, ATTR_RETRY_DELAY_MS, ATTR_RETRY_MAX} from "./embedBlock";
+import {buildEmbedJsCode, buildEmbedBlockMarkdown, attrsToTransactionData} from "./embedBlock";
 import type {EmbedQueryType, ITransactionEmbedData} from "./embedBlock";
 import {renderTransactionIntoContainer} from "./txBlockRenderer";
 
@@ -655,38 +655,42 @@ export default class LedgerPlugin extends Plugin {
     private registerGlobalLedger() {
         const config = () => this.dataService.getConfig();
 
-        const doRender = (
-            dataOrAttrs: Record<string, string> | ITransactionEmbedData,
-            item: HTMLElement,
-        ): boolean => {
-            let data: ITransactionEmbedData | null;
-
-            // Discriminate: raw IAL attrs contain the ATTR_TYPE key
-            if (ATTR_TYPE in dataOrAttrs) {
-                data = attrsToTransactionData(
-                    dataOrAttrs as Record<string, string>,
-                );
-            } else if ("date" in dataOrAttrs) {
-                // Legacy ITransactionEmbedData (has "date" + "postings")
-                data = dataOrAttrs as ITransactionEmbedData;
-            } else {
-                // Neither IAL nor legacy format — backend hasn't updated yet
-                return false;
-            }
-
-            if (!data) return false;
-            // Normalise: guard against missing postings / tags
-            // (avoid mutating the original object)
-            const safeData = {
-                ...data,
-                postings: data.postings || [],
-                tags: data.tags || [],
-            };
-            renderTransactionIntoContainer(safeData, item, config());
-            return true;
-        };
+        /** Delay (ms) between retries when IAL attributes are not yet available. */
+        const RETRY_DELAY_MS = 50;
+        /** Maximum number of retry attempts. */
+        const RETRY_MAX = 3;
 
         (globalThis as any).Ledger = {
+            /**
+             * Fetch block IAL attributes with retry.
+             *
+             * When a transaction block is first created the backend may not
+             * have persisted the attributes yet.  This helper retries up to
+             * `RETRY_MAX` times (with `RETRY_DELAY_MS` between attempts)
+             * until `custom-ledger-type` appears in the response.
+             *
+             * @param blockId         SiYuan block ID
+             * @param fetchSyncPostFn The `fetchSyncPost` injected by the
+             *                        `//!js` embed execution context
+             * @returns Resolved attributes, or `null` on failure
+             */
+            async fetchBlockAttrs(
+                blockId: string,
+                fetchSyncPostFn: (url: string, data: unknown) => Promise<{ code: number; data?: Record<string, string> }>,
+            ): Promise<Record<string, string> | null> {
+                let res = await fetchSyncPostFn("/api/attr/getBlockAttrs", {id: blockId});
+                if (res.code !== 0 || !res.data) return null;
+                if (!res.data[ATTR_TYPE]) {
+                    for (let i = 0; i < RETRY_MAX; i++) {
+                        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+                        res = await fetchSyncPostFn("/api/attr/getBlockAttrs", {id: blockId});
+                        if (res.code !== 0 || !res.data) return null;
+                        if (res.data[ATTR_TYPE]) break;
+                    }
+                }
+                return res.data;
+            },
+
             /**
              * Called from `//!js` code inside transaction embed blocks.
              *
@@ -701,24 +705,27 @@ export default class LedgerPlugin extends Plugin {
                 dataOrAttrs: Record<string, string> | ITransactionEmbedData,
                 item: HTMLElement,
             ) {
-                if (doRender(dataOrAttrs, item)) return;
+                let data: ITransactionEmbedData | null;
 
-                // Backend may not have saved IAL attributes yet.
-                // Retry after short delays so the card renders once data is ready.
-                const el = item.closest?.("[data-node-id]");
-                const blockId = el?.getAttribute("data-node-id");
-                if (!blockId) return;
+                // Discriminate: raw IAL attrs contain the ATTR_TYPE key
+                if (ATTR_TYPE in dataOrAttrs) {
+                    data = attrsToTransactionData(
+                        dataOrAttrs as Record<string, string>,
+                    );
+                } else {
+                    // Legacy ITransactionEmbedData (has "date" + "postings")
+                    data = dataOrAttrs as ITransactionEmbedData;
+                }
 
-                const retry = (remaining: number) => {
-                    setTimeout(() => {
-                        fetchPost("/api/attr/getBlockAttrs", {id: blockId}, (res) => {
-                            if (res.code !== 0 || !res.data) return;
-                            if (doRender(res.data, item)) return;
-                            if (remaining > 0) retry(remaining - 1);
-                        });
-                    }, ATTR_RETRY_DELAY_MS);
+                if (!data) return;
+                // Normalise: guard against missing postings / tags
+                // (avoid mutating the original object)
+                const safeData = {
+                    ...data,
+                    postings: data.postings || [],
+                    tags: data.tags || [],
                 };
-                retry(ATTR_RETRY_MAX);
+                renderTransactionIntoContainer(safeData, item, config());
             },
         };
     }
