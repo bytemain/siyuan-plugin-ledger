@@ -1,5 +1,5 @@
 import {describe, it, expect} from "vitest";
-import {parseIAL, blockRowToTransaction, attributeMapToTransaction, attributeMapToPosting, attributeRowsToTransactions, generateUUID, buildBlockContent, DataService} from "../dataService";
+import {parseIAL, blockRowToTransaction, attributeMapToTransaction, attributeMapToPosting, attributeRowsToTransactions, generateUUID, sanitizeBlockId, buildBlockContent, DataService} from "../dataService";
 import type {IAttributeRow} from "../dataService";
 import {
     ATTR_TYPE,
@@ -381,6 +381,34 @@ describe("generateUUID", () => {
             seen.add(generateUUID());
         }
         expect(seen.size).toBe(50);
+    });
+});
+
+// ─── sanitizeBlockId ──────────────────────────────────────────────────────────
+
+describe("sanitizeBlockId", () => {
+    it("accepts a valid SiYuan block ID", () => {
+        expect(sanitizeBlockId("20240315123456-abcdef0")).toBe("20240315123456-abcdef0");
+    });
+
+    it("accepts block IDs with all digits in suffix", () => {
+        expect(sanitizeBlockId("20240101000000-1234567")).toBe("20240101000000-1234567");
+    });
+
+    it("throws for SQL injection attempt", () => {
+        expect(() => sanitizeBlockId("'; DROP TABLE blocks; --")).toThrow("Invalid SiYuan block ID");
+    });
+
+    it("throws for empty string", () => {
+        expect(() => sanitizeBlockId("")).toThrow("Invalid SiYuan block ID");
+    });
+
+    it("throws for block ID with uppercase letters", () => {
+        expect(() => sanitizeBlockId("20240315123456-ABCDEF0")).toThrow("Invalid SiYuan block ID");
+    });
+
+    it("throws for block ID with wrong suffix length", () => {
+        expect(() => sanitizeBlockId("20240315123456-abcde")).toThrow("Invalid SiYuan block ID");
     });
 });
 

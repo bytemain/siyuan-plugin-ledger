@@ -41,7 +41,7 @@ import {
     TRANSACTION_TYPE_VALUE,
     POSTING_TYPE_VALUE,
 } from "./types";
-import {DataService} from "./dataService";
+import {DataService, sanitizeBlockId} from "./dataService";
 import {DEFAULT_ACCOUNTS} from "./defaultAccounts";
 import {openQuickEntryDialog, openSimpleEntryDialog} from "./quickEntryDialog";
 import {openImportExportDialog} from "./importExportDialog";
@@ -709,6 +709,9 @@ export default class LedgerPlugin extends Plugin {
                 blockId: string,
                 fetchSyncPostFn: (url: string, data: unknown) => Promise<{ code: number; data?: Array<Record<string, string>> }>,
             ): Promise<Array<{ account: string; amount: number; currency: string }>> {
+                // Validate block ID to prevent SQL injection
+                if (!/^\d{14}-[0-9a-z]{7}$/.test(blockId)) return [];
+
                 const res = await fetchSyncPostFn("/api/query/sql", {
                     stmt: `SELECT a.block_id, a.name, a.value FROM attributes a JOIN blocks b ON a.block_id = b.id WHERE b.parent_id = '${blockId}' AND a.name LIKE 'custom-ledger-%'`,
                 });
@@ -807,13 +810,21 @@ export default class LedgerPlugin extends Plugin {
     }
 
     private openEditTransactionById(blockId: string) {
-        fetchPost("/api/attr/getBlockAttrs", {id: blockId}, (res) => {
+        // Validate block ID before using in SQL
+        let safeBlockId: string;
+        try {
+            safeBlockId = sanitizeBlockId(blockId);
+        } catch {
+            return;
+        }
+
+        fetchPost("/api/attr/getBlockAttrs", {id: safeBlockId}, (res) => {
             if (res.code !== 0) return;
             const attrs = res.data || {};
 
             // Try to fetch child posting blocks (new model)
             fetchPost("/api/query/sql", {
-                stmt: `SELECT a.block_id, a.name, a.value FROM attributes a JOIN blocks b ON a.block_id = b.id WHERE b.parent_id = '${blockId}' AND a.name LIKE 'custom-ledger-%'`,
+                stmt: `SELECT a.block_id, a.name, a.value FROM attributes a JOIN blocks b ON a.block_id = b.id WHERE b.parent_id = '${safeBlockId}' AND a.name LIKE 'custom-ledger-%'`,
             }, (postingRes) => {
                 let postings: ITransaction["postings"] = [];
 

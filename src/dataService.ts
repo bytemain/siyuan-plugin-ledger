@@ -209,6 +209,27 @@ export function generateUUID(): string {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+// ─── Block ID validation ─────────────────────────────────────────────────────
+
+/**
+ * SiYuan block IDs follow the pattern `YYYYMMDDHHMMSS-xxxxxxx` where the
+ * suffix is a 7-character lowercase hex string.  This regex validates that
+ * pattern to prevent SQL injection when block IDs are interpolated into
+ * SQL queries (SiYuan's /api/query/sql does not support parameterised queries).
+ */
+const BLOCK_ID_PATTERN = /^\d{14}-[0-9a-z]{7}$/;
+
+/**
+ * Validate and return a SiYuan block ID for safe SQL interpolation.
+ * Throws if the ID does not match the expected pattern.
+ */
+export function sanitizeBlockId(id: string): string {
+    if (!BLOCK_ID_PATTERN.test(id)) {
+        throw new Error(`Invalid SiYuan block ID: ${id}`);
+    }
+    return id;
+}
+
 // ─── DataService ─────────────────────────────────────────────────────────────
 
 export class DataService {
@@ -522,11 +543,12 @@ export class DataService {
      * Query all direct child block IDs of a parent block.
      */
     private queryChildBlockIds(parentBlockId: string): Promise<string[]> {
+        const safeId = sanitizeBlockId(parentBlockId);
         return new Promise((resolve, reject) => {
             fetchPost(
                 "/api/query/sql",
                 {
-                    stmt: `SELECT id FROM blocks WHERE parent_id = '${parentBlockId}'`,
+                    stmt: `SELECT id FROM blocks WHERE parent_id = '${safeId}'`,
                 },
                 (res) => {
                     if (res.code !== 0) {
@@ -634,8 +656,8 @@ export class DataService {
     ): Promise<Array<{ block_id: string; parent_id: string; name: string; value: string }>> {
         if (txBlockIds.length === 0) return Promise.resolve([]);
 
-        // Build a safe IN clause — block IDs are system-generated hex strings
-        const inClause = txBlockIds.map(id => `'${id}'`).join(",");
+        // Build a safe IN clause — validate each block ID
+        const inClause = txBlockIds.map(id => `'${sanitizeBlockId(id)}'`).join(",");
 
         return new Promise((resolve, reject) => {
             fetchPost(
