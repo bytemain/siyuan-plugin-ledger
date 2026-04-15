@@ -488,13 +488,7 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
         const tagsVal = (el.querySelector<HTMLInputElement>("#ledger-tags"))?.value.trim() || "";
         const tags = tagsVal ? tagsVal.split(",").map(t => t.trim()).filter(Boolean) : [];
 
-        if (!payeeVal && !isTransfer) {
-            const payeeInput = el.querySelector<HTMLInputElement>("#ledger-payee");
-            payeeInput?.focus();
-            payeeInput?.classList.add("ledger-error");
-            return;
-        }
-        // For transfers, use a default payee if none provided
+        // Payee is optional for all modes — use a sensible default when empty
         const finalPayee = payeeVal || (isTransfer ? (i18n.transferDefaultPayee || "Transfer") : "");
         if (isNaN(amountVal) || amountVal <= 0) {
             const amountInput = el.querySelector<HTMLInputElement>("#ledger-amount");
@@ -961,13 +955,6 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
         const payeeVal = (el.querySelector<HTMLInputElement>("#ledger-qe-payee"))?.value.trim() || "";
         const tagsVal = (el.querySelector<HTMLInputElement>("#ledger-qe-tags"))?.value.trim() || "";
         const tags = tagsVal ? tagsVal.split(",").map(t => t.trim()).filter(Boolean) : [];
-
-        if (!payeeVal) {
-            const payeeInput = el.querySelector<HTMLInputElement>("#ledger-qe-payee");
-            payeeInput?.focus();
-            payeeInput?.classList.add("ledger-error");
-            return;
-        }
 
         // Collect postings from editable fields
         const postingRows = [...postingsDiv.querySelectorAll<HTMLElement>(".ledger-qe-posting-row")];
