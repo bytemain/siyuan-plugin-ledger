@@ -373,7 +373,7 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
         }
     });
 
-    // Focus: amount for expense/transfer (first input), payee for income
+    // Focus: amount for expense/transfer, payee for income
     setTimeout(() => {
         const focusField = isIncome ? "#ledger-payee" : "#ledger-amount";
         (el.querySelector<HTMLInputElement>(focusField))?.focus();
