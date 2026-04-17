@@ -56,6 +56,11 @@ export interface IQuickEntryOptions {
     defaultTags?: string[];
     /** Called when a new account is added inline so it can be persisted */
     onAccountAdded?: () => void;
+    /**
+     * Override the insertion position of the new transaction block.
+     * When omitted the block is appended to the end of the current document.
+     */
+    insertPosition?: { parentID: string; previousID: string };
 }
 
 // ─── Inline "add account" dialog ─────────────────────────────────────────────
@@ -211,7 +216,7 @@ function attachAddNewHandler(
 }
 
 export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
-    const {mode, protyle, dataService: ds, i18n, onSuccess, onAccountAdded} = opts;
+    const {mode, protyle, dataService: ds, i18n, onSuccess, onAccountAdded, insertPosition} = opts;
     const config = ds.getConfig();
 
     const isExpense = mode === "expense";
@@ -559,10 +564,10 @@ export function openQuickEntryDialog(opts: IQuickEntryOptions): void {
         try {
             const protoInst = protyle.protyle;
             const element = protoInst?.wysiwyg?.element;
-            const parentID = protoInst?.block?.rootID || "";
-            const previousID = element?.lastElementChild
+            const parentID = insertPosition?.parentID ?? (protoInst?.block?.rootID || "");
+            const previousID = insertPosition?.previousID ?? (element?.lastElementChild
                 ? (element.lastElementChild as HTMLElement).dataset?.nodeId || ""
-                : "";
+                : "");
 
             const blockId = await ds.insertTransaction(tx, parentID, previousID);
             dialog.destroy();
@@ -597,6 +602,11 @@ export interface ISimpleEntryOptions {
     dataService: DataService;
     i18n: Record<string, string>;
     onSuccess?: (blockId: string) => void;
+    /**
+     * Override the insertion position of the new transaction block.
+     * When omitted the block is appended to the end of the current document.
+     */
+    insertPosition?: { parentID: string; previousID: string };
 }
 
 /**
@@ -849,7 +859,7 @@ function parseReimbursement(
 }
 
 export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
-    const {protyle, dataService: ds, i18n, onSuccess} = opts;
+    const {protyle, dataService: ds, i18n, onSuccess, insertPosition} = opts;
     const config = ds.getConfig();
     const expenseAccounts = allAccountOptions(ds);
 
@@ -1019,10 +1029,10 @@ export function openSimpleEntryDialog(opts: ISimpleEntryOptions): void {
         try {
             const protoInst = protyle.protyle;
             const element = protoInst?.wysiwyg?.element;
-            const parentID = protoInst?.block?.rootID || "";
-            const previousID = element?.lastElementChild
+            const parentID = insertPosition?.parentID ?? (protoInst?.block?.rootID || "");
+            const previousID = insertPosition?.previousID ?? (element?.lastElementChild
                 ? (element.lastElementChild as HTMLElement).dataset?.nodeId || ""
-                : "";
+                : "");
 
             const tx: Omit<ITransaction, "blockId"> = {
                 uuid: "",
