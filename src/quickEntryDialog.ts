@@ -616,11 +616,21 @@ export interface ISimpleEntryOptions {
  * `"Codex Team" 35.9`) are parsed correctly.
  */
 function tokenizeQuickLine(line: string): string[] {
+    // Full-width quotes (used by Chinese IMEs): “ ” ‘ ’
+    const LDQUO = "\u201C"; // “
+    const RDQUO = "\u201D"; // ”
+    const LSQUO = "\u2018"; // ‘
+    const RSQUO = "\u2019"; // ’
+    const re = new RegExp(
+        `"([^"]*)"|'([^']*)'|${LDQUO}([^${RDQUO}]*)${RDQUO}|${LSQUO}([^${RSQUO}]*)${RSQUO}|(\\S+)`,
+        "g",
+    );
     const tokens: string[] = [];
-    const re = /"([^"]*)"|'([^']*)'|\u201C([^\u201D]*)\u201D|\u2018([^\u2019]*)\u2019|(\S+)/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(line)) !== null) {
-        tokens.push(m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? "");
+        // Pick whichever capture group actually matched.
+        const matched = m.slice(1).find(g => g !== undefined);
+        tokens.push(matched ?? "");
     }
     return tokens;
 }
