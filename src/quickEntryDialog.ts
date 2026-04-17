@@ -609,9 +609,25 @@ export interface ISimpleEntryOptions {
  *   "报销 差旅费 380"              — reimbursement income
  *   "报销 差旅费 380 银行卡"       — reimbursement income to specific account
  */
+/**
+ * Tokenize a quick-entry line. Whitespace-separated by default, but quoted
+ * substrings (ASCII "…" '…' or full-width “…” ‘…’) are kept together as a
+ * single token so that payees/narrations containing spaces (e.g.
+ * `"Codex Team" 35.9`) are parsed correctly.
+ */
+function tokenizeQuickLine(line: string): string[] {
+    const tokens: string[] = [];
+    const re = /"([^"]*)"|'([^']*)'|\u201C([^\u201D]*)\u201D|\u2018([^\u2019]*)\u2019|(\S+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(line)) !== null) {
+        tokens.push(m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? "");
+    }
+    return tokens;
+}
+
 export function parseQuickLine(line: string, ds: DataService): Partial<ITransaction> | null {
     const trimmed = line.trim();
-    const tokens = trimmed.split(/\s+/);
+    const tokens = tokenizeQuickLine(trimmed);
     if (tokens.length === 0) return null;
 
     // Strip optional leading date to find the keyword token
@@ -650,10 +666,20 @@ export function parseQuickLine(line: string, ds: DataService): Partial<ITransact
         idx++;
     }
 
-    // Second token: payee (non-numeric)
-    if (idx < tokens.length && isNaN(Number(tokens[idx]))) {
-        payee = tokens[idx++];
+    // Second token(s): payee — collect all consecutive non-numeric tokens
+    // that aren't tags or known account aliases, so multi-word payees
+    // (e.g. `Codex Team 35.9` or the quoted form `"Codex Team" 35.9`) are
+    // captured as a single payee.
+    const payeeParts: string[] = [];
+    while (idx < tokens.length) {
+        const t = tokens[idx];
+        if (/^\d+(\.\d+)?$/.test(t)) break;
+        if (t.startsWith("标签:") || t.startsWith("tags:")) break;
+        if (ACCOUNT_ALIASES[t]) break;
+        payeeParts.push(t);
+        idx++;
     }
+    payee = payeeParts.join(" ");
 
     // Remaining tokens
     for (; idx < tokens.length; idx++) {
@@ -787,8 +813,8 @@ function parseReimbursement(
             tags.push(...t.split(":").slice(1));
         } else if (ACCOUNT_ALIASES[t]) {
             targetAccount = ACCOUNT_ALIASES[t];
-        } else if (!narration) {
-            narration = t;
+        } else {
+            narration = narration ? narration + " " + t : t;
         }
     }
 
