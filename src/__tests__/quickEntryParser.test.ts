@@ -87,6 +87,47 @@ describe("parseQuickLine — standard expenses", () => {
         const ds = createTestDS();
         expect(parseQuickLine("午饭", ds)).toBeNull();
     });
+
+    it("parses multi-word payee 'Codex Team 35.9'", () => {
+        const ds = createTestDS();
+        const result = parseQuickLine("Codex Team 35.9", ds);
+        expect(result).not.toBeNull();
+        expect(result!.payee).toBe("Codex Team");
+        expect(result!.postings![0].amount).toBeCloseTo(35.9);
+        expect(result!.postings![1].amount).toBeCloseTo(-35.9);
+    });
+
+    it("parses multi-word payee with account alias 'Codex Team 35.9 微信'", () => {
+        const ds = createTestDS();
+        const result = parseQuickLine("Codex Team 35.9 微信", ds);
+        expect(result).not.toBeNull();
+        expect(result!.payee).toBe("Codex Team");
+        expect(result!.postings![1].account).toBe("Assets:WeChatPay");
+    });
+
+    it("parses double-quoted payee '\"Codex Team\" 35.9'", () => {
+        const ds = createTestDS();
+        const result = parseQuickLine('"Codex Team" 35.9', ds);
+        expect(result).not.toBeNull();
+        expect(result!.payee).toBe("Codex Team");
+        expect(result!.postings![0].amount).toBeCloseTo(35.9);
+    });
+
+    it("parses full-width quoted payee '“Codex Team” 35.9'", () => {
+        const ds = createTestDS();
+        const result = parseQuickLine("\u201CCodex Team\u201D 35.9", ds);
+        expect(result).not.toBeNull();
+        expect(result!.payee).toBe("Codex Team");
+    });
+
+    it("parses multi-word payee with date prefix", () => {
+        const ds = createTestDS();
+        const result = parseQuickLine("2024-03-15 Codex Team 35.9 微信", ds);
+        expect(result).not.toBeNull();
+        expect(result!.date).toBe("2024-03-15");
+        expect(result!.payee).toBe("Codex Team");
+        expect(result!.postings![1].account).toBe("Assets:WeChatPay");
+    });
 });
 
 // ─── Credit card bill payment parsing ─────────────────────────────────────────
@@ -229,5 +270,13 @@ describe("parseQuickLine — reimbursement", () => {
     it("returns null when amount is missing", () => {
         const ds = createTestDS();
         expect(parseQuickLine("报销 差旅费", ds)).toBeNull();
+    });
+
+    it("parses multi-word narration '报销 出差 打车费 86'", () => {
+        const ds = createTestDS();
+        const result = parseQuickLine("报销 出差 打车费 86", ds);
+        expect(result).not.toBeNull();
+        expect(result!.payee).toBe("出差 打车费");
+        expect(result!.postings![0].amount).toBe(-86);
     });
 });
