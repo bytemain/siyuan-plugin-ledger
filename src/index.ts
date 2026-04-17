@@ -931,6 +931,71 @@ export default class LedgerPlugin extends Plugin {
     }
 
     /**
+     * Compute the insertion position for a block triggered by a slash command.
+     *
+     * The returned `parentID` / `previousID` places the new block immediately
+     * BEFORE the slash block, so that after insertion the empty slash block
+     * (which is where the cursor currently lives) naturally ends up right
+     * AFTER the newly inserted block.
+     *
+     * Falls back to appending at the end of the current document when the
+     * slash block cannot be located.
+     */
+    private getSlashInsertPosition(
+        protyle: Protyle,
+        slashBlockId?: string,
+    ): { parentID: string; previousID: string } {
+        const protoInst = protyle?.protyle;
+        const wysiwyg = protoInst?.wysiwyg?.element;
+        const parentID = protoInst?.block?.rootID || "";
+        const fallbackPrevious = wysiwyg?.lastElementChild
+            ? ((wysiwyg.lastElementChild as HTMLElement).dataset?.nodeId || "")
+            : "";
+        if (!wysiwyg || !slashBlockId) {
+            return {parentID, previousID: fallbackPrevious};
+        }
+        const slashEl = wysiwyg.querySelector<HTMLElement>(`[data-node-id="${slashBlockId}"]`);
+        if (!slashEl) {
+            return {parentID, previousID: fallbackPrevious};
+        }
+        const prev = slashEl.previousElementSibling as HTMLElement | null;
+        return {parentID, previousID: prev?.dataset?.nodeId || ""};
+    }
+
+    /**
+     * Clean up the empty block left behind by a slash command and position
+     * the cursor inside it, so that after a quick-entry insertion the cursor
+     * ends up right after the newly inserted block.
+     *
+     * The slash block may still contain the `/jz` trigger text, so we reset
+     * its content to an empty paragraph via `updateBlock` before focusing.
+     */
+    private finalizeSlashBlock(protyle: Protyle, slashBlockId: string): void {
+        fetchPost(
+            "/api/block/updateBlock",
+            {id: slashBlockId, dataType: "markdown", data: ""},
+            (res) => {
+                if (res.code !== 0) {
+                    console.warn("[SiYuan Ledger] failed to clear slash block:", res.msg);
+                }
+                const focus = () => {
+                    const wysiwyg = protyle?.protyle?.wysiwyg?.element;
+                    const el = wysiwyg?.querySelector<HTMLElement>(`[data-node-id="${slashBlockId}"]`);
+                    if (el && typeof protyle.focusBlock === "function") {
+                        protyle.focusBlock(el, true);
+                    }
+                };
+                // The DOM may not reflect the updateBlock / new embed insertion
+                // immediately (SiYuan applies these changes via its WebSocket
+                // transaction stream). Defer focus by a short delay so that
+                // the slash block is guaranteed to be present in the DOM when
+                // we call focusBlock.
+                setTimeout(focus, 80);
+            },
+        );
+    }
+
+    /**
      * Remove the empty block left behind by a slash command.
      */
     private removeSlashBlock(blockId: string): void {
@@ -947,17 +1012,19 @@ export default class LedgerPlugin extends Plugin {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
             return;
         }
+        const insertPosition = slashBlockId ? this.getSlashInsertPosition(p, slashBlockId) : undefined;
         openQuickEntryDialog({
             mode: "expense",
             protyle: p,
             dataService: this.dataService,
             i18n: this.i18n,
+            insertPosition,
             onAccountAdded: () => this.savePersistedAccounts(),
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
                 this.refreshStatusBar();
-                if (slashBlockId) this.removeSlashBlock(slashBlockId);
+                if (slashBlockId) this.finalizeSlashBlock(p, slashBlockId);
             },
         });
     }
@@ -968,17 +1035,19 @@ export default class LedgerPlugin extends Plugin {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
             return;
         }
+        const insertPosition = slashBlockId ? this.getSlashInsertPosition(p, slashBlockId) : undefined;
         openQuickEntryDialog({
             mode: "income",
             protyle: p,
             dataService: this.dataService,
             i18n: this.i18n,
+            insertPosition,
             onAccountAdded: () => this.savePersistedAccounts(),
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
                 this.refreshStatusBar();
-                if (slashBlockId) this.removeSlashBlock(slashBlockId);
+                if (slashBlockId) this.finalizeSlashBlock(p, slashBlockId);
             },
         });
     }
@@ -989,17 +1058,19 @@ export default class LedgerPlugin extends Plugin {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
             return;
         }
+        const insertPosition = slashBlockId ? this.getSlashInsertPosition(p, slashBlockId) : undefined;
         openQuickEntryDialog({
             mode: "transfer",
             protyle: p,
             dataService: this.dataService,
             i18n: this.i18n,
+            insertPosition,
             onAccountAdded: () => this.savePersistedAccounts(),
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
                 this.refreshStatusBar();
-                if (slashBlockId) this.removeSlashBlock(slashBlockId);
+                if (slashBlockId) this.finalizeSlashBlock(p, slashBlockId);
             },
         });
     }
@@ -1010,15 +1081,17 @@ export default class LedgerPlugin extends Plugin {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
             return;
         }
+        const insertPosition = slashBlockId ? this.getSlashInsertPosition(p, slashBlockId) : undefined;
         openSimpleEntryDialog({
             protyle: p,
             dataService: this.dataService,
             i18n: this.i18n,
+            insertPosition,
             onSuccess: () => {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
                 this.refreshStatusBar();
-                if (slashBlockId) this.removeSlashBlock(slashBlockId);
+                if (slashBlockId) this.finalizeSlashBlock(p, slashBlockId);
             },
         });
     }
@@ -1029,11 +1102,13 @@ export default class LedgerPlugin extends Plugin {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
             return;
         }
+        const insertPosition = slashBlockId ? this.getSlashInsertPosition(p, slashBlockId) : undefined;
         openQuickEntryDialog({
             mode: "transfer",
             protyle: p,
             dataService: this.dataService,
             i18n: this.i18n,
+            insertPosition,
             defaultFromAccount: "Assets:Bank:Checking",
             defaultToAccount: "Liabilities:CreditCard:CMB",
             onAccountAdded: () => this.savePersistedAccounts(),
@@ -1041,7 +1116,7 @@ export default class LedgerPlugin extends Plugin {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
                 this.refreshStatusBar();
-                if (slashBlockId) this.removeSlashBlock(slashBlockId);
+                if (slashBlockId) this.finalizeSlashBlock(p, slashBlockId);
             },
         });
     }
@@ -1052,11 +1127,13 @@ export default class LedgerPlugin extends Plugin {
             showMessage("[Ledger] " + this.i18n.openDocFirst);
             return;
         }
+        const insertPosition = slashBlockId ? this.getSlashInsertPosition(p, slashBlockId) : undefined;
         openQuickEntryDialog({
             mode: "income",
             protyle: p,
             dataService: this.dataService,
             i18n: this.i18n,
+            insertPosition,
             defaultFromAccount: "Income:Reimbursement",
             defaultTags: ["报销"],
             onAccountAdded: () => this.savePersistedAccounts(),
@@ -1064,7 +1141,7 @@ export default class LedgerPlugin extends Plugin {
                 showMessage("[Ledger] " + this.i18n.txInserted);
                 this.savePersistedCache();
                 this.refreshStatusBar();
-                if (slashBlockId) this.removeSlashBlock(slashBlockId);
+                if (slashBlockId) this.finalizeSlashBlock(p, slashBlockId);
             },
         });
     }
@@ -1091,15 +1168,11 @@ export default class LedgerPlugin extends Plugin {
         const markdown = buildEmbedBlockMarkdown(jsCode);
 
         try {
-            const protoInst = p.protyle;
-            const parentID = protoInst?.block?.rootID || "";
-            const previousID = protoInst?.wysiwyg?.element?.lastElementChild
-                ? ((protoInst.wysiwyg.element.lastElementChild as HTMLElement).dataset?.nodeId || "")
-                : "";
+            const {parentID, previousID} = this.getSlashInsertPosition(p, slashBlockId);
 
             await this.dataService.insertEmbedBlock(markdown, parentID, previousID);
             showMessage("[Ledger] " + this.i18n.embedInserted);
-            if (slashBlockId) this.removeSlashBlock(slashBlockId);
+            if (slashBlockId) this.finalizeSlashBlock(p, slashBlockId);
         } catch (e) {
             console.error("[SiYuan Ledger] insert embed block failed:", e);
             showMessage(`[Ledger] ${this.i18n.embedInsertFailed}: ${e}`);
