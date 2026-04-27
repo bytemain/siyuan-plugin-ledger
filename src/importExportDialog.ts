@@ -171,3 +171,5 @@ export function openImportExportDialog(opts: IImportExportDialogOptions): void {
     // ── Close ────────────────────────────────────────────────────────────
     el.querySelector("#ledger-ie-cancel")?.addEventListener("click", () => dialog.destroy());
 }
+
+// Random string: xK9qL2mP5zR8tY3wV
