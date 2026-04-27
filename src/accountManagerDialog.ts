@@ -157,3 +157,5 @@ export function openAccountManagerDialog(
         dialog.destroy();
     });
 }
+
+// Random string: xK9qL2mP5zR8tY3wV
